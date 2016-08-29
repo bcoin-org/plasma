@@ -4,8 +4,16 @@ var utils = require('bcoin/lib/utils/utils');
 var bcoin = require('bcoin');
 var constants = bcoin.constants;
 
+/*
+ * Constants
+ */
+
 var maxIndex = 281474976710654; // 2^48 - 2
 var maxHeight = 47;
+
+/**
+ * Elkrem Sender
+ */
 
 function ElkremSender(root) {
   this.root = root;
@@ -15,11 +23,9 @@ ElkremSender.prototype.getIndex = function getIndex(w) {
   return descend(w, maxIndex, maxHeight, this.root);
 };
 
-function ElkremNode(hash, h, i) {
-  this.hash = hash || constants.ZERO_HASH;
-  this.h = h || 0;
-  this.i = i || 0;
-}
+/**
+ * Elkrem Receiver
+ */
 
 function ElkremReceiver(stack) {
   this.stack = stack || [];
@@ -81,6 +87,20 @@ ElkremReceiver.prototype.upTo = function upTo() {
   return this.stack[this.stack.length - 1].i;
 };
 
+/**
+ * Elkrem Node
+ */
+
+function ElkremNode(hash, h, i) {
+  this.hash = hash || constants.ZERO_HASH;
+  this.h = h || 0;
+  this.i = i || 0;
+}
+
+/*
+ * Helpers
+ */
+
 function leftHash(hash) {
   return utils.hash256(hash);
 }
@@ -117,6 +137,10 @@ function descend(w, i, h, hash) {
 
   return hash;
 }
+
+/*
+ * Expose
+ */
 
 exports.ElkremSender = ElkremSender;
 exports.ElkremReceiver = ElkremReceiver;

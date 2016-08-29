@@ -364,5 +364,3 @@ util.createCooperativeClose = function createCooperativeClose(
 
   return tx;
 };
-
-
