@@ -33,6 +33,9 @@ var ElkremSender = elkrem.ElkremSender;
 var ElkremReceiver = elkrem.ElkremReceiver;
 var util = require('./util');
 var ChannelState = require('./channelstate');
+var wire = require('./wire');
+var CommitRevocation = wire.CommitRevocation;
+var HTLCAddRequest = wire.HTLCAddRequest;
 
 var maxPendingPayments = 100;
 var initialRevocationWindow = 4;
@@ -567,23 +570,6 @@ function compactLogs(ourLog, theirLog, localChainTail, remoteChainTail) {
   compact(ourLog, theirLog, this.theirLogIndex, this.ourLogIndex);
   compact(theirLog, ourLog, this.ourLogIndex, this.theirLogIndex);
 };
-
-function CommitRevocation() {
-  this.channelPoint = new bcoin.outpoint();
-  this.revocation = constants.ZERO_HASH;
-  this.nextRevKey = constants.ZERO_KEY;
-  this.nextRevHash = constants.ZERO_HASH;
-}
-
-function HTLCAddRequest() {
-  this.channelPoint = new bcoin.outpoint();
-  this.expiry = 0;
-  this.value = 0;
-  this.refundContext = null; // not currently used
-  this.contractType = 0; // bitfield for m of n
-  this.redemptionHashes = [];
-  this.onionBlob = null;
-}
 
 Channel.prototype.extendRevocationWindow = function extendRevocationWindow() {
   var revMsg = new CommitRevocation();
