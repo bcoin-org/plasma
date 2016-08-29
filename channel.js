@@ -36,89 +36,18 @@ var ChannelState = require('./channelstate');
 var wire = require('./wire');
 var CommitRevocation = wire.CommitRevocation;
 var HTLCAddRequest = wire.HTLCAddRequest;
+var List = require('./list');
 
-var maxPendingPayments = 100;
-var initialRevocationWindow = 4;
-
-var channelStates = {
-  PENDING: 0,
-  OPEN: 1,
-  CLOSING: 2,
-  CLOSED: 3,
-  DISPUTE: 4,
-  PENDINGPAYMENT: 5
-};
-
-var updateType = {
-  ADD: 0,
-  TIMEOUT: 1,
-  SETTLE: 2
-};
-
-function PaymentDescriptor() {
-  this.paymentHash = constants.ZERO_HASH;
-  this.timeout = 0;
-  this.value = 0;
-  this.index = 0;
-  this.parentIndex = 0;
-  this.payload = null;
-  this.entryType = updateType.ADD;
-  this.addCommitHeightRemote = 0;
-  this.addCommitHeightLocal = 0;
-  this.removeCommitHeightRemote = 0;
-  this.removeCommitHeightLocal = 0;
-  this.isForwarded = false;
-  this.settled = false;
-}
-
-function Commitment() {
-  this.height = 0;
-  this.ourMessageIndex = 0;
-  this.theirMessageIndex = 0;
-  this.tx = new bcoin.mtx();
-  this.sig = constants.ZERO_SIG;
-  this.ourBalance = 0;
-  this.theirBalance = 0;
-}
-
-function CommitmentChain(height) {
-  this.list = new List();
-  this.startingHeight = height || 0;
-}
-
-CommitmentChain.prototype.add = function(c) {
-  this.list.push(c);
-};
-
-CommitmentChain.prototype.advanceTail = function() {
-  this.list.shift();
-};
-
-CommitmentChain.prototype.tip = function() {
-  if (!this.list.tail)
-    return;
-  return this.list.tail.value;
-};
-
-CommitmentChain.prototype.tail = function() {
-  if (!this.list.head)
-    return;
-  return this.list.head.value;
-};
-
-function HTLCView(ourUpdates, theirUpdates) {
-  this.ourUpdates = ourUpdates || [];
-  this.theirUpdates = theirUpdates || [];
-  this.ourBalance = 0;
-  this.theirBalance = 0;
-}
+/**
+ * Channel
+ */
 
 function Channel(options) {
   this.wallet = options.wallet || null;
   this.chain = options.chain || null;
   this.ourLogCounter = 0;
   this.theirLogCounter = 0;
-  this.status = channelStates.PENDING;
+  this.status = Channel.states.PENDING;
   this.currentHeight = options.state.numUpdates || 0;
   this.revocationWindowEdge = options.state.numUpdates || 0;
   this.usedRevocations = [];
@@ -139,6 +68,25 @@ function Channel(options) {
 
   this._init();
 }
+
+Channel.states = {
+  PENDING: 0,
+  OPEN: 1,
+  CLOSING: 2,
+  CLOSED: 3,
+  DISPUTE: 4,
+  PENDINGPAYMENT: 5
+};
+
+Channel.updateType = {
+  ADD: 0,
+  TIMEOUT: 1,
+  SETTLE: 2
+};
+
+Channel.maxPendingPayments = 100;
+
+Channel.initialRevocationWindow = 4;
 
 Channel.prototype._init = function _init() {
   var initialCommit = new Commitment();
@@ -264,7 +212,7 @@ function evalHTLCView(view, ourBalance, theirBalance, nextHeight, remoteChain) {
 
   for (i = 0; i < view.ourUpdates.length; i++) {
     entry = view.ourUpdates[i];
-    if (entry.entryType === updateType.ADD)
+    if (entry.entryType === Channel.updateType.ADD)
       continue;
     addEntry = this.theirLogIndex[entry.parentIndex];
     skipThem[addEntry.value.index] = true;
@@ -273,7 +221,7 @@ function evalHTLCView(view, ourBalance, theirBalance, nextHeight, remoteChain) {
 
   for (i = 0; i < view.theirUpdates.length; i++) {
     entry = view.theirUpdates[i];
-    if (entry.entryType === updateType.ADD)
+    if (entry.entryType === Channel.updateType.ADD)
       continue;
     addEntry = this.ourLogIndex[entry.parentIndex];
     skipUs[addEntry.value.index] = true;
@@ -282,7 +230,7 @@ function evalHTLCView(view, ourBalance, theirBalance, nextHeight, remoteChain) {
 
   for (i = 0; i < view.ourUpdates.length; i++) {
     entry = view.ourUpdates[i];
-    isAdd = entry.entryType === updateType.ADD;
+    isAdd = entry.entryType === Channel.updateType.ADD;
     if (!isAdd || skipUs[entry.index])
       continue;
     processAddEntry(entry, filtered, nextHeight, remoteChain, false);
@@ -291,7 +239,7 @@ function evalHTLCView(view, ourBalance, theirBalance, nextHeight, remoteChain) {
 
   for (i = 0; i < view.theirUpdates.length; i++) {
     entry = view.theirUpdates[i];
-    isAdd = entry.entryType === updateType.ADD;
+    isAdd = entry.entryType === Channel.updateType.ADD;
     if (!isAdd || skipThem[entry.index])
       continue;
     processAddEntry(entry, filtered, nextHeight, remoteChain, true);
@@ -335,14 +283,14 @@ function processRemoveEntry(htlc, filtered, nextHeight, remoteChain, isIncoming)
     return;
 
   if (isIncoming) {
-    if (htlc.entryType === updateType.SETTLE)
+    if (htlc.entryType === Channel.updateType.SETTLE)
       filtered.ourBalance += htlc.value;
-    else if (htlc.entryType === updateType.TIMEOUT)
+    else if (htlc.entryType === Channel.updateType.TIMEOUT)
       filtered.theirBalance += htlc.value;
   } else {
-    if (htlc.entryType === updateType.SETTLE)
+    if (htlc.entryType === Channel.updateType.SETTLE)
       filtered.theirBalance += htlc.value;
-    else if (htlc.entryType === updateType.TIMEOUT)
+    else if (htlc.entryType === Channel.updateType.TIMEOUT)
       filtered.ourBalance += htlc.value;
   }
 
@@ -356,7 +304,7 @@ Channel.prototype.signNextCommitment = function signNextCommitment() {
   var nextRev, remoteRevKey, remoteRevHash, view, sig;
 
   if (this.revocationWindow.length === 0
-      || this.usedRevocations.length === initialRevocationWindow) {
+      || this.usedRevocations.length === Channel.initialRevocationWindow) {
     throw new Error('No revocation window.');
   }
 
@@ -455,7 +403,7 @@ Channel.prototype.revokeCurrentCommitment = function revokeCurrentCommitment() {
 };
 
 Channel.prototype.receiveRevocation = function receiveRevocation(revMsg) {
-  var ourCommitKey, currentRevKey, pendingRev, remoteElkrem;
+  var ourCommitKey, currentRevKey, pendingRev;
   var revPriv, revPub, revHash, nextRev;
   var remoteChainTail, localChainTail;
   var item, htlcsToForward, htlc, uncommitted;
@@ -468,9 +416,8 @@ Channel.prototype.receiveRevocation = function receiveRevocation(revMsg) {
   ourCommitKey = this.state.ourCommitKey;
   currentRevKey = this.state.theirCurrentRevocation;
   pendingRev = revMsg.revocation;
-  remoteElkrem = this.state.remoteElkrem;
 
-  remoteElkrem.addNext(pendingRev);
+  this.state.remoteElkrem.addNext(pendingRev);
 
   revPriv = util.deriveRevPriv(ourCommitKey, pendingRev);
   revPub = bcoin.ec.publicKeyCreate(revPriv, true);
@@ -508,10 +455,10 @@ Channel.prototype.receiveRevocation = function receiveRevocation(revMsg) {
     uncommitted = htlc.addCommitHeightRemote === 0
       || htlc.addCommitHeightLocal === 0;
 
-    if (htlc.entryType === updateType.ADD && uncommitted)
+    if (htlc.entryType === Channel.updateType.ADD && uncommitted)
       continue;
 
-    if (htlc.entryType === updateType.ADD
+    if (htlc.entryType === Channel.updateType.ADD
         && remoteChainTail >= htlc.addCommitHeightRemote
         && localChainTail >= htlc.addCommitHeightLocal) {
       htlc.isForwarded = true;
@@ -519,7 +466,7 @@ Channel.prototype.receiveRevocation = function receiveRevocation(revMsg) {
       continue;
     }
 
-    if (htlc.entryType !== updateType.ADD
+    if (htlc.entryType !== Channel.updateType.ADD
       && remoteChainTail >= htlc.removeCommitHeightRemote
       && localChainTail >= htlc.removeCommitHeightLocal) {
       htlc.isForwarded = true;
@@ -546,7 +493,7 @@ function compactLogs(ourLog, theirLog, localChainTail, remoteChainTail) {
       htlc = item.value;
       next = item.next;
 
-      if (htlc.entryType === updateType.ADD)
+      if (htlc.entryType === Channel.updateType.ADD)
         continue;
 
       if (htlc.removeCommitHeightRemote === 0
@@ -590,7 +537,7 @@ Channel.prototype.addHTLC = function addHTLC(htlc) {
   var pd = new PaymentDescriptor();
   var item;
 
-  pd.entryType = updateType.ADD;
+  pd.entryType = Channel.updateType.ADD;
   pd.paymentHash = htlc.redemptionHashes[0];
   pd.timeout = htlc.expiry;
   pd.value = htlc.value;
@@ -607,7 +554,7 @@ Channel.prototype.receiveHTLC = function receiveHTLC(htlc) {
   var pd = new PaymentDescriptor();
   var item;
 
-  pd.entryType = updateType.ADD;
+  pd.entryType = Channel.updateType.ADD;
   pd.paymentHash = htlc.redemptionHashes[0];
   pd.timeout = htlc.expiry;
   pd.value = htlc.value;
@@ -627,7 +574,7 @@ Channel.prototype.settleHTLC = function settleHTLC(preimage) {
   for (item = this.theirUpdateLog.head; item; item = item.next) {
     htlc = item.value;
 
-    if (htlc.entryType !== updateType.ADD)
+    if (htlc.entryType !== Channel.updateType.ADD)
       continue;
 
     if (htlc.settled)
@@ -647,7 +594,7 @@ Channel.prototype.settleHTLC = function settleHTLC(preimage) {
   pd.value = target.value;
   pd.index = this.ourLogCounter;
   pd.parentIndex = target.index;
-  pd.entryType = updateType.SETTLE;
+  pd.entryType = Channel.updateType.SETTLE;
 
   this.ourUpdateLog.push(pd);
   this.ourLogCounter++;
@@ -672,7 +619,7 @@ Channel.prototype.receiveHTLCSettle = function receiveHTLCSettle(preimage, logIn
   pd.value = htlc.value;
   pd.parentIndex = htlc.index;
   pd.index = this.theirLogCounter;
-  pd.entryType = updateType.SETTLE;
+  pd.entryType = Channel.updateType.SETTLE;
 
   this.theirUpdateLog.push(pd);
   this.theirLogCounter++;
@@ -729,12 +676,12 @@ Channel.prototype.forceClose = function forceClose() {
 Channel.prototype.initCooperativeClose = function initCooperativeClose() {
   var closeTX, sig;
 
-  if (this.status === channelStates.CLOSING
-      || this.status === channelStates.CLOSED) {
+  if (this.status === Channel.states.CLOSING
+      || this.status === Channel.states.CLOSED) {
     throw new Error('Channel is already closed.');
   }
 
-  this.status = channelStates.CLOSING;
+  this.status = Channel.states.CLOSING;
 
   closeTX = util.createCooperativeClose(
     this.fundingInput,
@@ -760,12 +707,12 @@ Channel.prototype.initCooperativeClose = function initCooperativeClose() {
 Channel.prototype.completeCooperativeClose = function completeCooperativeClose(remoteSig) {
   var closeTX, redeem, sig, ourKey, theirKey, witness;
 
-  if (this.status === channelStates.CLOSING
-      || this.status === channelStates.CLOSED) {
+  if (this.status === Channel.states.CLOSING
+      || this.status === Channel.states.CLOSED) {
     throw new Error('Channel is already closed.');
   }
 
-  this.status = channelStates.CLOSED;
+  this.status = Channel.states.CLOSED;
 
   closeTX = util.createCooperativeClose(
     this.fundingInput,
@@ -795,689 +742,81 @@ Channel.prototype.completeCooperativeClose = function completeCooperativeClose(r
 };
 
 /**
- * A linked list.
- * @exports List
- * @constructor
+ * Payment Descriptor
  */
 
-function List() {
-  if (!(this instanceof List))
-    return new List();
-
-  this.head = null;
-  this.tail = null;
+function PaymentDescriptor() {
+  this.paymentHash = constants.ZERO_HASH;
+  this.timeout = 0;
+  this.value = 0;
+  this.index = 0;
+  this.parentIndex = 0;
+  this.payload = null;
+  this.entryType = Channel.updateType.ADD;
+  this.addCommitHeightRemote = 0;
+  this.addCommitHeightLocal = 0;
+  this.removeCommitHeightRemote = 0;
+  this.removeCommitHeightLocal = 0;
+  this.isForwarded = false;
+  this.settled = false;
 }
 
 /**
- * Reset the cache. Clear all items.
+ * Commitment
  */
 
-List.prototype.reset = function reset() {
-  var item, next;
-
-  for (item = this.head; item; item = next) {
-    next = item.next;
-    item.prev = null;
-    item.next = null;
-  }
-
-  assert(!item);
-
-  this.head = null;
-  this.tail = null;
-};
+function Commitment() {
+  this.height = 0;
+  this.ourMessageIndex = 0;
+  this.theirMessageIndex = 0;
+  this.tx = new bcoin.mtx();
+  this.sig = constants.ZERO_SIG;
+  this.ourBalance = 0;
+  this.theirBalance = 0;
+}
 
 /**
- * Remove the first item in the list.
+ * Commitment Chain
  */
 
-List.prototype.shiftItem = function shiftItem() {
-  var item = this.head;
+function CommitmentChain(height) {
+  this.list = new List();
+  this.startingHeight = height || 0;
+}
 
-  if (!item)
+CommitmentChain.prototype.add = function(c) {
+  this.list.push(c);
+};
+
+CommitmentChain.prototype.advanceTail = function() {
+  this.list.shift();
+};
+
+CommitmentChain.prototype.tip = function() {
+  if (!this.list.tail)
     return;
-
-  this.removeItem(item);
-
-  return item;
+  return this.list.tail.value;
 };
 
-/**
- * Prepend an item to the linked list (sets new head).
- * @private
- * @param {ListItem}
- */
-
-List.prototype.unshiftItem = function unshiftItem(item) {
-  this.insertItem(null, item);
-};
-
-/**
- * Append an item to the linked list (sets new tail).
- * @private
- * @param {ListItem}
- */
-
-List.prototype.pushItem = function pushItem(item) {
-  this.insertItem(this.tail, item);
-};
-
-/**
- * Remove the last item in the list.
- */
-
-List.prototype.popItem = function popItem() {
-  var item = this.tail;
-
-  if (!item)
+CommitmentChain.prototype.tail = function() {
+  if (!this.list.head)
     return;
-
-  this.removeItem(item);
-
-  return item;
+  return this.list.head.value;
 };
 
 /**
- * Remove the first item in the list.
+ * HTLC View
  */
 
-List.prototype.shift = function shift() {
-  var item = this.shiftItem();
-  if (!item)
-    return;
-  return item.value;
-};
-
-/**
- * Prepend an item to the linked list (sets new head).
- * @private
- * @param {ListItem}
- */
-
-List.prototype.unshift = function unshift(value) {
-  var item = new ListItem(value);
-  this.unshiftItem(item);
-  return item;
-};
-
-/**
- * Append an item to the linked list (sets new tail).
- * @private
- * @param {ListItem}
- */
-
-List.prototype.push = function push(value) {
-  var item = new ListItem(value);
-  this.pushItem(item);
-  return item;
-};
-
-/**
- * Remove the last item in the list.
- */
-
-List.prototype.pop = function pop() {
-  var item = this.popItem();
-  if (!item)
-    return;
-  return item.value;
-};
-
-/**
- * Insert item into the linked list.
- * @private
- * @param {ListItem|null} ref
- * @param {ListItem} item
- */
-
-List.prototype.insertItem = function insertItem(ref, item) {
-  assert(!item.next);
-  assert(!item.prev);
-
-  if (ref == null) {
-    if (!this.head) {
-      this.head = item;
-      this.tail = item;
-    } else {
-      this.head.prev = item;
-      item.next = this.head;
-      this.head = item;
-    }
-    return;
-  }
-
-  item.next = ref.next;
-  item.prev = ref;
-  ref.next = item;
-
-  if (ref === this.tail)
-    this.tail = item;
-};
-
-/**
- * Remove item from the linked list.
- * @private
- * @param {ListItem}
- */
-
-List.prototype.removeItem = function removeItem(item) {
-  if (item.prev)
-    item.prev.next = item.next;
-
-  if (item.next)
-    item.next.prev = item.prev;
-
-  if (item === this.head)
-    this.head = item.next;
-
-  if (item === this.tail)
-    this.tail = item.prev || this.head;
-
-  if (!this.head)
-    assert(!this.tail);
-
-  if (!this.tail)
-    assert(!this.head);
-
-  item.prev = null;
-  item.next = null;
-};
-
-/**
- * Convert the list to an array of items.
- * @returns {Object[]}
- */
-
-List.prototype.toArray = function toArray() {
-  var items = [];
-  var item;
-
-  for (item = this.head; item; item = item.next)
-    items.push(item.value);
-
-  return items;
-};
-
-/**
- * Get the list size.
- * @returns {Number}
- */
-
-List.prototype.size = function size() {
-  var total = 0;
-  var item;
-
-  for (item = this.head; item; item = item.next)
-    total += 1;
-
-  return total;
-};
-
-/**
- * Represents an LRU item.
- * @constructor
- * @private
- * @param {String} key
- * @param {Object} value
- */
-
-function ListItem(value) {
-  this.value = value;
-  this.next = null;
-  this.prev = null;
+function HTLCView(ourUpdates, theirUpdates) {
+  this.ourUpdates = ourUpdates || [];
+  this.theirUpdates = theirUpdates || [];
+  this.ourBalance = 0;
+  this.theirBalance = 0;
 }
 
-// TestCommitmentSpendValidation test the spendability of both outputs within
-// the commitment transaction.
-//
-// The following spending cases are covered by this test:
-//   * Alice's spend from the delayed output on her commitment transaciton.
-//   * Bob's spend from Alice's delayed output when she broadcasts a revoked
-//     commitment transaction.
-//   * Bob's spend from his unencumbered output within Alice's commitment
-//     transaction.
-function commitSpendValidation() {
-  var hdSeed = bcoin.ec.random(32);
-
-  // Setup funding transaction output.
-  var fundingOutput = new bcoin.coin();
-  fundingOutput.hash = constants.ONE_HASH.toString('hex');
-  fundingOutput.index = 50;
-  fundingOutput.value = 1 * 1e8;
-
-	// We also set up set some resources for the commitment transaction.
-	// Each side currently has 1 BTC within the channel, with a total
-	// channel capacity of 2BTC.
-  var alice = bcoin.ec.generatePrivateKey();
-  var alicePub = bcoin.ec.publicKeyCreate(alice, true);
-  var bob = bcoin.ec.generatePrivateKey();
-  var bobPub = bcoin.ec.publicKeyCreate(bob, true);
-  var balance = 1 * 1e8;
-  var csvTimeout = 5;
-  var revImage = hdSeed;
-  var revPub = util.deriveRevPub(bobPub, revImage);
-
-  var commitTX = util.createCommitTX(fundingOutput, alicePub, bobPub, revPub, csvTimeout, balance, balance);
-  // var delayOut = commitTX.outputs[0];
-  // var regularOut = commitTX.outputs[1];
-  var targetOut = util.commitUnencumbered(alicePub);
-  var sweep = new bcoin.mtx();
-  sweep.addInput(bcoin.coin.fromTX(commitTX, 0));
-  var o = new bcoin.output();
-  o.script = targetOut;
-  o.value = 0.5 * 1e8;
-  sweep.addOutput(o);
-
-  // First, we'll test spending with Alice's key after the timeout.
-  var delayScript = util.commitSelf(csvTimeout, alicePub, revPub);
-  var aliceSpend = util.commitSpendTimeout(delayScript, csvTimeout, alice, sweep);
-  sweep.inputs[0].witness = aliceSpend;
-  assert(sweep.verify());
-
-	// Next, we'll test bob spending with the derived revocation key to
-	// simulate the scenario when alice broadcasts this commitmen
-	// transaction after it's been revoked.
-  var revPriv = util.deriveRevPriv(bob, revImage);
-  var bobSpend = util.commitSpendRevoke(delayScript, revPriv, sweep);
-  sweep.inputs[0].witness = bobSpend;
-  assert(sweep.verify());
-
-	// Finally, we test bob sweeping his output as normal in the case that
-	// alice broadcasts this commitment transaction.
-  sweep.inputs.length = 0;
-  sweep.addInput(bcoin.coin.fromTX(commitTX, 1));
-  var bobScript = util.commitUnencumbered(bobPub);
-  var bobRegularSpend = util.commitSpendNoDelay(bobScript, bob, sweep);
-  sweep.inputs[0].witness = bobRegularSpend;
-  assert(sweep.verify());
-}
-
-// TestHTLCSenderSpendValidation tests all possible valid+invalid redemption
-// paths in the script used within the sender's commitment transaction for an
-// outgoing HTLC.
-//
-// The following cases are exercised by this test:
-// sender script:
-//  * reciever spends
-//    * revoke w/ sig
-//    * HTLC with invalid pre-image size
-//    * HTLC with valid pre-image size + sig
-//  * sender spends
-//    * invalid lock-time for CLTV
-//    * invalid sequence for CSV
-//    * valid lock-time+sequence, valid sig
-function htlcSpenderValidation() {
-  var hdSeed = bcoin.ec.random(32);
-
-  var fundingOutput = new bcoin.coin();
-  fundingOutput.hash = constants.ONE_HASH.toString('hex');
-  fundingOutput.index = 50;
-  fundingOutput.value = 1 * 1e8;
-
-  var revImage = hdSeed;
-  var revHash = utils.sha256(revImage);
-  var payImage = utils.copy(revHash);
-  payImage[0] ^= 1;
-  var payHash = utils.sha256(payImage);
-
-  var alice = bcoin.ec.generatePrivateKey();
-  var alicePub = bcoin.ec.publicKeyCreate(alice, true);
-  var bob = bcoin.ec.generatePrivateKey();
-  var bobPub = bcoin.ec.publicKeyCreate(bob, true);
-  var payValue = 1 * 10e8;
-  var cltvTimeout = 8;
-  var csvTimeout = 5;
-
-  var htlc = util.createSenderHTLC(
-    cltvTimeout, csvTimeout, alicePub,
-    bobPub, revHash, payHash);
-
-  var whtlc = util.toWitnessScripthash(htlc);
-
-	// This will be Alice's commitment transaction. In this scenario Alice
-	// is sending an HTLC to a node she has a a path to (could be Bob,
-	// could be multiple hops down, it doesn't really matter).
-  var senderCommit = new bcoin.mtx();
-  senderCommit.addInput(fundingOutput);
-  senderCommit.addOutput({
-    value: payValue,
-    script: whtlc
-  });
-
-  var prevout = bcoin.coin.fromTX(senderCommit, 0);
-
-  var sweep = new bcoin.mtx();
-  sweep.addInput(prevout);
-  sweep.addOutput({
-    script: bcoin.script.fromRaw('doesnt matter', 'ascii'),
-    value: 1 * 10e8
-  });
-
-  function testHTLC(witness, result) {
-    sweep.inputs[0].witness = witness;
-    assert(sweep.verify() === result);
-  }
-
-  // revoke w/ sig
-  testHTLC(util.senderSpendRevoke(htlc, bob, sweep, revImage), true);
-  // htlc with invalid preimage size
-  testHTLC(util.senderSpendRedeem(htlc, bob, sweep, new Buffer(45)), false);
-  // htlc with valid preimage size & sig
-  testHTLC(util.senderSpendRedeem(htlc, bob, sweep, payImage), true);
-  // invalid locktime for cltv
-  testHTLC(util.senderSpendTimeout(htlc, alice, sweep, cltvTimeout - 2, csvTimeout), false);
-  // invalid sequence for csv
-  testHTLC(util.senderSpendTimeout(htlc, alice, sweep, cltvTimeout, csvTimeout - 2), false);
-  // valid locktime+sequence, valid sig
-  testHTLC(util.senderSpendTimeout(htlc, alice, sweep, cltvTimeout, csvTimeout), true);
-}
-
-// TestHTLCReceiverSpendValidation tests all possible valid+invalid redemption
-// paths in the script used within the reciever's commitment transaction for an
-// incoming HTLC.
-//
-// The following cases are exercised by this test:
-//  * reciever spends
-//     * HTLC redemption w/ invalid preimage size
-//     * HTLC redemption w/ invalid sequence
-//     * HTLC redemption w/ valid preimage size
-//  * sender spends
-//     * revoke w/ sig
-//     * refund w/ invalid lock time
-//     * refund w/ valid lock time
-function htlcReceiverValidation() {
-  var hdSeed = bcoin.ec.random(32);
-
-  var fundingOutput = new bcoin.coin();
-  fundingOutput.hash = constants.ONE_HASH.toString('hex');
-  fundingOutput.index = 50;
-  fundingOutput.value = 1 * 1e8;
-
-  var revImage = hdSeed;
-  var revHash = utils.sha256(revImage);
-  var payImage = utils.copy(revHash);
-  payImage[0] ^= 1;
-  var payHash = utils.sha256(payImage);
-
-  var alice = bcoin.ec.generatePrivateKey();
-  var alicePub = bcoin.ec.publicKeyCreate(alice, true);
-  var bob = bcoin.ec.generatePrivateKey();
-  var bobPub = bcoin.ec.publicKeyCreate(bob, true);
-  var payValue = 1 * 10e8;
-  var cltvTimeout = 8;
-  var csvTimeout = 5;
-
-  var htlc = util.createReceiverHTLC(
-    cltvTimeout, csvTimeout, alicePub,
-    bobPub, revHash, payHash);
-
-  var whtlc = util.toWitnessScripthash(htlc);
-
-	// This will be Bob's commitment transaction. In this scenario Alice
-	// is sending an HTLC to a node she has a a path to (could be Bob,
-	// could be multiple hops down, it doesn't really matter).
-  var recCommit = new bcoin.mtx();
-  recCommit.addInput(fundingOutput);
-  recCommit.addOutput({
-    value: payValue,
-    script: whtlc
-  });
-  var prevout = bcoin.coin.fromTX(recCommit, 0);
-
-  var sweep = new bcoin.mtx();
-  sweep.addInput(prevout);
-  sweep.addOutput({
-    script: bcoin.script.fromRaw('doesnt matter', 'ascii'),
-    value: 1 * 10e8
-  });
-
-  function testHTLC(witness, result) {
-    sweep.inputs[0].witness = witness;
-    assert(sweep.verify() === result);
-  }
-
-  // htlc redemption w/ invalid preimage size
-  testHTLC(util.recSpendRedeem(htlc, bob, sweep, new Buffer(45), csvTimeout), false);
-  // htlc redemption w/ invalid sequence
-  testHTLC(util.recSpendRedeem(htlc, bob, sweep, payImage, csvTimeout - 2), false);
-  // htlc redemption w/ valid preimage size
-  testHTLC(util.recSpendRedeem(htlc, bob, sweep, payImage, csvTimeout), true);
-  // revoke w/ sig
-  testHTLC(util.recSpendRevoke(htlc, alice, sweep, revImage), true);
-  // refund w/ invalid lock time
-  testHTLC(util.recSpendTimeout(htlc, alice, sweep, cltvTimeout - 2), false);
-  // refund w/ valid lock time
-  testHTLC(util.recSpendTimeout(htlc, alice, sweep, cltvTimeout), true);
-}
-
-// funding -> 2of2 multisig
-// commitment alice ->
-//   output 0: wp2sh(if [alice-revpub] checksig else [alicekey] checksigverify [csvtime] csv endif)
-//   output 1: wp2kh([bobkey])
-// commitment bob ->
-//   output 0: wp2sh(if [bob-revpub] checksig else [bobkey] checksigverify [csvtime] csv endif)
-//   output 1: wp2kh([alicekey])
-
-function createChannels() {
-  var hdSeed = bcoin.ec.random(32);
-  var alice = bcoin.ec.generatePrivateKey();
-  var alicePub = bcoin.ec.publicKeyCreate(alice, true);
-  var bob = bcoin.ec.generatePrivateKey();
-  var bobPub = bcoin.ec.publicKeyCreate(bob, true);
-  var channelCapacity = 10 * 1e8;
-  var channelBalance = channelCapacity / 2;
-  var csvTimeoutAlice = 5;
-  var csvTimeoutBob = 4;
-
-  var redeem = util.fundingRedeem(alicePub, bobPub, channelCapacity);
-
-  var fundingOutput = new bcoin.coin();
-  fundingOutput.hash = constants.ONE_HASH.toString('hex');
-  fundingOutput.index = 0;
-  fundingOutput.value = 1 * 1e8;
-
-  var bobElkrem = new ElkremSender(util.deriveElkremRoot(bob, alicePub));
-  var bobFirstRevoke = bobElkrem.getIndex(0);
-  var bobRevKey = util.deriveRevPub(alicePub, bobFirstRevoke);
-
-  var aliceElkrem = new ElkremSender(util.deriveElkremRoot(alice, bobPub));
-  var aliceFirstRevoke = aliceElkrem.getIndex(0);
-  var aliceRevKey = util.deriveRevPub(bobPub, aliceFirstRevoke);
-
-  var aliceCommit = util.createCommitTX(
-    fundingOutput, alicePub, bobPub, aliceRevKey,
-    csvTimeoutAlice, channelBalance, channelBalance);
-
-  var bobCommit = util.createCommitTX(
-    fundingOutput, bobPub, alicePub, bobRevKey,
-    csvTimeoutAlice, channelBalance, channelBalance);
-
-  fundingOutput.script = redeem.output.script;
-
-  var aliceState = new ChannelState({
-    theirLNID: hdSeed,
-    id: fundingOutput, // supposed to be an outpoint. do outpoint.fromOptions
-    ourCommitKey: alice,
-    theirCommitKey: bobPub,
-    capacity: channelCapacity,
-    ourBalance: channelBalance,
-    theirBalance: channelBalance,
-    ourCommitTX: aliceCommit,
-    fundingInput: fundingOutput,
-    ourMultisigKey: alice,
-    theirMultisigKey: bobPub,
-    fundingScript: redeem.redeem,
-    localCSVDelay: csvTimeoutAlice,
-    remoteCSVDelay: csvTimeoutBob,
-    theirCurrentRevocation: bobRevKey,
-    localElkrem: aliceElkrem,
-    remoteElkrem: new ElkremReceiver(),
-    db: null
-  });
-
-  var bobState = new ChannelState({
-    theirLNID: hdSeed,
-    id: fundingOutput, // supposed to be prevout. do outpoint.fromOptions
-    ourCommitKey: bob,
-    theirCommitKey: alicePub,
-    capacity: channelCapacity,
-    ourBalance: channelBalance,
-    theirBalance: channelBalance,
-    ourCommitTX: bobCommit,
-    fundingInput: fundingOutput,
-    ourMultisigKey: bob,
-    theirMultisigKey: alicePub,
-    fundingScript: redeem.redeem,
-    localCSVDelay: csvTimeoutBob,
-    remoteCSVDelay: csvTimeoutAlice,
-    theirCurrentRevocation: aliceRevKey,
-    localElkrem: bobElkrem,
-    remoteElkrem: new ElkremReceiver(),
-    db: null
-  });
-
-  var aliceChannel = new Channel({
-    state: aliceState
-  });
-
-  var bobChannel = new Channel({
-    state: bobState
-  });
-
-  return { alice: aliceChannel, bob: bobChannel };
-}
-
-function simpleAddSettleWorkflow() {
-  var channel = createChannels();
-  var i, aliceNextRevoke, htlcs, bobNextRevoke;
-  var data;
-
-  for (i = 1; i < 4; i++) {
-    aliceNextRevoke = channel.alice.extendRevocationWindow();
-    htlcs = channel.bob.receiveRevocation(aliceNextRevoke);
-    assert(!htlcs || htlcs.length === 0);
-    bobNextRevoke = channel.bob.extendRevocationWindow();
-    htlcs = channel.alice.receiveRevocation(bobNextRevoke);
-    assert(!htlcs || htlcs.length === 0);
-  }
-
-  assert(channel.alice.revocationWindowEdge === 3);
-  assert(channel.bob.revocationWindowEdge === 3);
-
-  var payPreimage = bcoin.ec.random(32);
-  var payHash = utils.sha256(payPreimage);
-
-  var htlc = new HTLCAddRequest();
-  htlc.redemptionHashes = [payHash];
-  htlc.value = 1e8;
-  htlc.expiry = 5;
-
-  channel.alice.addHTLC(htlc);
-  channel.bob.receiveHTLC(htlc);
-
-  data = channel.alice.signNextCommitment();
-  var aliceSig = data.sig;
-  var bobLogIndex = data.index;
-
-  channel.bob.receiveNewCommitment(aliceSig, bobLogIndex);
-
-  data = channel.bob.signNextCommitment();
-  var bobSig = data.sig;
-  var aliceLogIndex = data.index;
-
-  var bobRev = channel.bob.revokeCurrentCommitment();
-
-  channel.alice.receiveNewCommitment(bobSig, aliceLogIndex);
-
-  htlcs = channel.alice.receiveRevocation(bobRev);
-  assert(!htlcs || htlcs.length === 0);
-
-  var aliceRev = channel.alice.revokeCurrentCommitment();
-
-  htlcs = channel.bob.receiveRevocation(aliceRev);
-  assert(htlcs && htlcs.length === 1);
-
-  var aliceBalance = 4 * 1e8;
-  var bobBalance = 5 * 1e8;
-
-  assert(channel.alice.state.ourBalance === aliceBalance);
-  assert(channel.alice.state.theirBalance === bobBalance);
-  assert(channel.bob.state.ourBalance === bobBalance);
-  assert(channel.bob.state.theirBalance === aliceBalance);
-  assert(channel.alice.currentHeight === 1);
-  assert(channel.bob.currentHeight === 1);
-  assert(channel.alice.revocationWindowEdge === 4);
-  assert(channel.bob.revocationWindowEdge === 4);
-
-  // Bob learns of the preimage:
-  var preimage = utils.copy(payPreimage);
-  var settleIndex = channel.bob.settleHTLC(preimage);
-
-  channel.alice.receiveHTLCSettle(preimage, settleIndex);
-
-  data = channel.bob.signNextCommitment();
-  var bobSig2 = data.sig;
-  var aliceIndex2 = data.index;
-
-  channel.alice.receiveNewCommitment(bobSig2, aliceIndex2);
-
-  data = channel.alice.signNextCommitment();
-  var aliceSig2 = data.sig;
-  var bobIndex2 = data.index;
-  var aliceRev2 = channel.alice.revokeCurrentCommitment();
-
-  channel.bob.receiveNewCommitment(aliceSig2, bobIndex2);
-
-  var bobRev2 = channel.bob.revokeCurrentCommitment();
-
-  htlcs = channel.bob.receiveRevocation(aliceRev2);
-  assert(!htlcs || htlcs.length === 0);
-
-  htlcs = channel.alice.receiveRevocation(bobRev2);
-  assert(htlcs && htlcs.length === 1);
-
-  var aliceSettleBalance = 4 * 1e8;
-  var bobSettleBalance = 6 * 1e8;
-  assert(channel.alice.state.ourBalance === aliceSettleBalance);
-  assert(channel.alice.state.theirBalance === bobSettleBalance);
-  assert(channel.bob.state.ourBalance === bobSettleBalance);
-  assert(channel.bob.state.theirBalance === aliceSettleBalance);
-  assert(channel.alice.currentHeight === 2);
-  assert(channel.bob.currentHeight === 2);
-  assert(channel.alice.revocationWindowEdge === 5);
-  assert(channel.bob.revocationWindowEdge === 5);
-
-  assert(channel.alice.ourUpdateLog.size() === 0);
-  assert(channel.alice.theirUpdateLog.size() === 0);
-  assert(Object.keys(channel.alice.ourLogIndex).length === 0);
-  assert(Object.keys(channel.alice.theirLogIndex).length === 0);
-
-  assert(channel.bob.ourUpdateLog.size() === 0);
-  assert(channel.bob.theirUpdateLog.size() === 0);
-  assert(Object.keys(channel.bob.ourLogIndex).length === 0);
-  assert(Object.keys(channel.bob.theirLogIndex).length === 0);
-}
-
-function cooperativeChannelClosure() {
-  var channel = createChannels();
-  var data = channel.alice.initCooperativeClose();
-  var sig = data.sig;
-  var txid = data.hash;
-  var closeTX = channel.bob.completeCooperativeClose(sig);
-  assert(utils.equal(txid, closeTX.hash()));
-
-  channel.alice.status = channelStates.OPEN;
-  channel.bob.status = channelStates.OPEN;
-
-  var data = channel.bob.initCooperativeClose();
-  var sig = data.sig;
-  var txid = data.hash;
-  var closeTX = channel.alice.completeCooperativeClose(sig);
-  assert(utils.equal(txid, closeTX.hash()));
-}
-
-commitSpendValidation();
-htlcSpenderValidation();
-htlcReceiverValidation();
-simpleAddSettleWorkflow();
-cooperativeChannelClosure();
+/*
+ * Expose
+ */
+
+module.exports = Channel;
