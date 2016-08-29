@@ -34,7 +34,26 @@ util.toWitnessScripthash = function(redeem) {
 };
 
 util.toMultisig = function(k1, k2) {
-  return bcoin.script.fromMultisig(2, 2, [k1, k2]);
+  var script = new bcoin.script();
+  var k;
+
+  // Note: It looks like lnd orders these in reverse.
+  if (utils.cmp(k1, k2) < 0) {
+    k = k1;
+    k1 = k2;
+    k2 = k;
+  }
+
+  script.push(opcodes.OP_2);
+  script.push(k1);
+  script.push(k2);
+  script.push(opcodes.OP_2);
+  script.push(opcodes.OP_CHECKMULTISIG);
+  script.compile();
+
+  // return bcoin.script.fromMultisig(2, 2, [k1, k2]);
+
+  return script;
 };
 
 util.fundingRedeem = function(k1, k2, value) {
@@ -57,6 +76,7 @@ util.spendMultisig = function(redeem, k1, s1, k2, s2) {
 
   witness.push(new Buffer(0));
 
+  // Note: It looks like lnd orders these in reverse.
   if (utils.cmp(k1, k2) < 0) {
     witness.push(s2);
     witness.push(s1);
@@ -354,17 +374,19 @@ util.createCooperativeClose = function createCooperativeClose(
   else
     theirBalance -= 5000;
 
-  output = new bcoin.output();
-
   if (ourBalance > 0) {
+    output = new bcoin.output();
     output.script = ourDeliveryScript;
     output.value = ourBalance;
-  } else {
-    output.script = theirDeliveryScript;
-    output.value = theirBalance;
+    tx.addOutput(output);
   }
 
-  tx.addOutput(output);
+  if (theirBalance > 0) {
+    output = new bcoin.output();
+    output.script = theirDeliveryScript;
+    output.value = theirBalance;
+    tx.addOutput(output);
+  }
 
   tx.sortMembers();
 
@@ -1216,7 +1238,7 @@ Channel.prototype.forceClose = function forceClose() {
 };
 
 Channel.prototype.initCooperativeClose = function initCooperativeClose() {
-  var closeTX, closeHash, sig;
+  var closeTX, sig;
 
   if (this.status === channelStates.CLOSING
       || this.status === channelStates.CLOSED) {
@@ -1233,23 +1255,21 @@ Channel.prototype.initCooperativeClose = function initCooperativeClose() {
     this.state.theirDeliveryScript,
     true);
 
-  closeHash = closeTX.hash(); // XXX regular sha?
-
   closeTX.inputs[0].coin.value = this.state.capacity;
 
-  sig = closeTX.signature(
-    0, this.state.fundingScript,
+  sig = closeTX.signature(0,
+    this.state.fundingScript,
     this.state.ourMultisigKey,
     constants.hashType.ALL, 1);
 
   return {
     sig: sig,
-    hash: closeHash
+    hash: closeTX.hash()
   };
 };
 
 Channel.prototype.completeCooperativeClose = function completeCooperativeClose(remoteSig) {
-  var redeem, sig, ourKey, theirKey, witness;
+  var closeTX, redeem, sig, ourKey, theirKey, witness;
 
   if (this.status === channelStates.CLOSING
       || this.status === channelStates.CLOSED) {
@@ -1266,6 +1286,8 @@ Channel.prototype.completeCooperativeClose = function completeCooperativeClose(r
     this.state.theirDeliveryScript,
     false);
 
+  closeTX.inputs[0].coin.value = this.state.capacity;
+
   redeem = this.state.fundingScript;
   sig = closeTX.signature(0,
     redeem, this.state.ourMultisigKey,
@@ -1273,7 +1295,7 @@ Channel.prototype.completeCooperativeClose = function completeCooperativeClose(r
 
   ourKey = bcoin.ec.publicKeyCreate(this.state.ourMultisigKey, true);
   theirKey = this.state.theirMultisigKey;
-  witness = utils.spendMultisig(redeem, ourKey, sig, theirKey, remoteSig);
+  witness = util.spendMultisig(redeem, ourKey, sig, theirKey, remoteSig);
 
   closeTX.inputs[0].witness = witness;
 
@@ -1822,7 +1844,26 @@ function simpleAddSettleWorkflow() {
   assert(Object.keys(channel.bob.theirLogIndex).length === 0);
 }
 
+function cooperativeChannelClosure() {
+  var channel = createChannels();
+  var data = channel.alice.initCooperativeClose();
+  var sig = data.sig;
+  var txid = data.hash;
+  var closeTX = channel.bob.completeCooperativeClose(sig);
+  assert(utils.equal(txid, closeTX.hash()));
+
+  channel.alice.status = channelStates.OPEN;
+  channel.bob.status = channelStates.OPEN;
+
+  var data = channel.bob.initCooperativeClose();
+  var sig = data.sig;
+  var txid = data.hash;
+  var closeTX = channel.alice.completeCooperativeClose(sig);
+  assert(utils.equal(txid, closeTX.hash()));
+}
+
 commitSpendValidation();
 htlcSpenderValidation();
 htlcReceiverValidation();
 simpleAddSettleWorkflow();
+cooperativeChannelClosure();
