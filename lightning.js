@@ -572,6 +572,8 @@ CommitmentChain.prototype.tail = function() {
 function HTLCView(ourUpdates, theirUpdates) {
   this.ourUpdates = ourUpdates || [];
   this.theirUpdates = theirUpdates || [];
+  this.ourBalance = 0;
+  this.theirBalance = 0;
 }
 
 function Channel(options) {
@@ -622,9 +624,9 @@ Channel.prototype._init = function _init() {
 
 Channel.prototype.getCommitmentView = getCommitmentView;
 
-function getCommitmentView(remoteChain, ourLogIndex, theirLogIndex, revKey, revHash) {
+function getCommitmentView(ourLogIndex, theirLogIndex, revKey, revHash, remoteChain) {
   var commitChain, ourBalance, theirBalance, nextHeight;
-  var balances, htlcView, filteredHTLCView;
+  var view, filtered;
   var selfKey, remoteKey, delay, delayBalance, p2wpkhBalance;
   var i, ourCommit, commit, htlc, commitment;
 
@@ -633,7 +635,7 @@ function getCommitmentView(remoteChain, ourLogIndex, theirLogIndex, revKey, revH
   else
     commitChain = this.localCommitChain;
 
-  if (commitChain.tip() == null) {
+  if (!commitChain.tip()) {
     ourBalance = this.state.ourBalance;
     theirBalance = this.state.theirBalance;
     nextHeight = 1;
@@ -643,30 +645,24 @@ function getCommitmentView(remoteChain, ourLogIndex, theirLogIndex, revKey, revH
     nextHeight = commitChain.tip().height + 1;
   }
 
-  // Hack
-  balances = {
-    ourBalance: ourBalance,
-    theirBalance: theirBalance
-  };
+  view = this.getHTLCView(theirLogIndex, ourLogIndex);
 
-  htlcView = this.getHTLCView(theirLogIndex, ourLogIndex);
-  filteredHTLCView = this.evalHTLCView(htlcView, balances, nextHeight, remoteChain);
-
-  ourBalance = balances.ourBalance;
-  theirBalance = balances.theirBalance;
+  filtered = this.evalHTLCView(
+    view, ourBalance, theirBalance,
+    nextHeight, remoteChain);
 
   if (remoteChain) {
     selfKey = this.state.theirCommitKey;
     remoteKey = bcoin.ec.publicKeyCreate(this.state.ourCommitKey, true);
     delay = this.state.remoteCSVDelay;
-    delayBalance = theirBalance;
-    p2wpkhBalance = ourBalance;
+    delayBalance = filtered.theirBalance;
+    p2wpkhBalance = filtered.ourBalance;
   } else {
     selfKey = bcoin.ec.publicKeyCreate(this.state.ourCommitKey, true);
     remoteKey = this.state.theirCommitKey;
     delay = this.state.localCSVDelay;
-    delayBalance = ourBalance;
-    p2wpkhBalance = theirBalance;
+    delayBalance = filtered.ourBalance;
+    p2wpkhBalance = filtered.theirBalance;
   }
 
   ourCommit = !remoteChain;
@@ -675,14 +671,14 @@ function getCommitmentView(remoteChain, ourLogIndex, theirLogIndex, revKey, revH
     this.fundingInput, selfKey, remoteKey,
     revKey, delay, delayBalance, p2wpkhBalance);
 
-  for (i = 0; i < filteredHTLCView.ourUpdates.length; i++) {
-    htlc = filteredHTLCView.ourUpdates[i];
-    this._addHTLC(commit, ourCommit, htlc, revHash, delay, false);
+  for (i = 0; i < filtered.ourUpdates.length; i++) {
+    htlc = filtered.ourUpdates[i];
+    this.pushHTLC(commit, ourCommit, htlc, revHash, delay, false);
   }
 
-  for (i = 0; i < filteredHTLCView.theirUpdates.length; i++) {
-    htlc = filteredHTLCView.theirUpdates[i];
-    this._addHTLC(commit, ourCommit, htlc, revHash, delay, true);
+  for (i = 0; i < filtered.theirUpdates.length; i++) {
+    htlc = filtered.theirUpdates[i];
+    this.pushHTLC(commit, ourCommit, htlc, revHash, delay, true);
   }
 
   commit.sortMembers();
@@ -690,10 +686,10 @@ function getCommitmentView(remoteChain, ourLogIndex, theirLogIndex, revKey, revH
   commitment = new Commitment();
   commitment.tx = commit;
   commitment.height = nextHeight;
-  commitment.ourBalance = ourBalance;
+  commitment.ourBalance = filtered.ourBalance;
   commitment.ourMessageIndex = ourLogIndex;
   commitment.theirMessageIndex = theirLogIndex;
-  commitment.theirBalance = theirBalance;
+  commitment.theirBalance = filtered.theirBalance;
 
   return commitment;
 }
@@ -720,11 +716,14 @@ Channel.prototype.getHTLCView = function getHTLCView(theirLogIndex, ourLogIndex)
 
 Channel.prototype.evalHTLCView = evalHTLCView;
 
-function evalHTLCView(view, balances, nextHeight, remoteChain) {
-  var newView = new HTLCView();
+function evalHTLCView(view, ourBalance, theirBalance, nextHeight, remoteChain) {
+  var filtered = new HTLCView();
   var skipUs = {};
   var skipThem = {};
   var i, entry, addEntry, isAdd;
+
+  filtered.ourBalance = ourBalance;
+  filtered.theirBalance = theirBalance;
 
   for (i = 0; i < view.ourUpdates.length; i++) {
     entry = view.ourUpdates[i];
@@ -750,7 +749,7 @@ function evalHTLCView(view, balances, nextHeight, remoteChain) {
     if (!isAdd || skipUs[entry.index])
       continue;
     processAddEntry(entry, false);
-    newView.ourUpdates.push(entry);
+    filtered.ourUpdates.push(entry);
   }
 
   for (i = 0; i < view.theirUpdates.length; i++) {
@@ -759,7 +758,7 @@ function evalHTLCView(view, balances, nextHeight, remoteChain) {
     if (!isAdd || skipThem[entry.index])
       continue;
     processAddEntry(entry, true);
-    newView.theirUpdates.push(entry);
+    filtered.theirUpdates.push(entry);
   }
 
   function processAddEntry(htlc, isIncoming) {
@@ -774,9 +773,9 @@ function evalHTLCView(view, balances, nextHeight, remoteChain) {
       return;
 
     if (isIncoming)
-      balances.theirBalance -= htlc.value;
+      filtered.theirBalance -= htlc.value;
     else
-      balances.ourBalance -= htlc.value;
+      filtered.ourBalance -= htlc.value;
 
     if (remoteChain)
       htlc.addCommitHeightRemote = nextHeight;
@@ -797,14 +796,14 @@ function evalHTLCView(view, balances, nextHeight, remoteChain) {
 
     if (isIncoming) {
       if (htlc.entryType === updateType.SETTLE)
-        balances.ourBalance += htlc.value;
+        filtered.ourBalance += htlc.value;
       else if (htlc.entryType === updateType.TIMEOUT)
-        balances.theirBalance += htlc.value;
+        filtered.theirBalance += htlc.value;
     } else {
       if (htlc.entryType === updateType.SETTLE)
-        balances.theirBalance += htlc.value;
+        filtered.theirBalance += htlc.value;
       else if (htlc.entryType === updateType.TIMEOUT)
-        balances.ourBalance += htlc.value;
+        filtered.ourBalance += htlc.value;
     }
 
     if (remoteChain)
@@ -813,7 +812,7 @@ function evalHTLCView(view, balances, nextHeight, remoteChain) {
       htlc.removeCommitHeightLocal = nextHeight;
   }
 
-  return newView;
+  return filtered;
 }
 
 Channel.prototype.signNextCommitment = function signNextCommitment() {
@@ -828,9 +827,9 @@ Channel.prototype.signNextCommitment = function signNextCommitment() {
   remoteRevKey = nextRev.nextRevKey;
   remoteRevHash = nextRev.nextRevHash;
 
-  view = this.getCommitmentView(true,
+  view = this.getCommitmentView(
     this.ourLogCounter, this.theirLogCounter,
-    remoteRevKey, remoteRevHash);
+    remoteRevKey, remoteRevHash, true);
 
   view.tx.inputs[0].coin.value = this.state.capacity;
 
@@ -861,9 +860,9 @@ Channel.prototype.receiveNewCommitment = function receiveNewCommitment(sig, ourL
   var view, localCommit, multisigScript;
   var msg, result;
 
-  view = this.getCommitmentView(false,
+  view = this.getCommitmentView(
     ourLogIndex, this.theirLogCounter,
-    revKey, revHash);
+    revKey, revHash, false);
 
   localCommit = view.tx;
   multisigScript = this.state.fundingScript;
@@ -1162,9 +1161,9 @@ Channel.prototype.channelPoint = function channelPoint() {
   return this.state.id;
 };
 
-Channel.prototype._addHTLC = _addHTLC;
+Channel.prototype.pushHTLC = pushHTLC;
 
-function _addHTLC(commitTX, ourCommit, pd, revocation, delay, isIncoming) {
+function pushHTLC(commitTX, ourCommit, pd, revocation, delay, isIncoming) {
   var localKey = bcoin.ec.publicKeyCreate(this.state.ourCommitKey, true);
   var remoteKey = this.state.theirCommitKey;
   var timeout = pd.timeout;
