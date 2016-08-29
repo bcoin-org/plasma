@@ -1102,7 +1102,7 @@ Channel.prototype.receiveHTLC = function receiveHTLC(htlc) {
 
 Channel.prototype.settleHTLC = function settleHTLC(preimage) {
   var paymentHash = utils.sha256(preimage);
-  var item, htlc, parentPd, pd, targetHTLC;
+  var item, htlc, target, pd;
 
   for (item = this.theirUpdateLog.head; item; item = item.next) {
     htlc = item.value;
@@ -1110,28 +1110,29 @@ Channel.prototype.settleHTLC = function settleHTLC(preimage) {
     if (htlc.entryType !== updateType.ADD)
       continue;
 
-    if (!htlc.settled && utils.equal(htlc.paymentHash, paymentHash)) {
+    if (htlc.settled)
+      continue;
+
+    if (utils.equal(htlc.paymentHash, paymentHash)) {
       htlc.settled = true;
-      targetHTLC = htlc;
+      target = htlc;
       break;
     }
   }
 
-  if (!targetHTLC)
+  if (!target)
     throw new Error('Invalid payment hash.');
 
-  parentPd = targetHTLC;
-
   pd = new PaymentDescriptor();
-  pd.value = parentPd.value;
+  pd.value = target.value;
   pd.index = this.ourLogCounter;
-  pd.parentIndex = parentPd.index;
+  pd.parentIndex = target.index;
   pd.entryType = updateType.SETTLE;
 
   this.ourUpdateLog.push(pd);
   this.ourLogCounter++;
 
-  return parentPd.index;
+  return target.index;
 };
 
 Channel.prototype.receiveHTLCSettle = function receiveHTLCSettle(preimage, logIndex) {
@@ -1168,36 +1169,36 @@ function pushHTLC(commitTX, ourCommit, pd, revocation, delay, isIncoming) {
   var remoteKey = this.state.theirCommitKey;
   var timeout = pd.timeout;
   var payHash = pd.paymentHash;
-  var script, htlcHash, valuePending, output;
+  var redeem, script, pending, output;
 
   if (isIncoming) {
     if (ourCommit) {
-      script = util.createReceiverHTLC(
+      redeem = util.createReceiverHTLC(
         timeout, delay, remoteKey,
         localKey, revocation, payHash);
     } else {
-      script = util.createSenderHTLC(
+      redeem = util.createSenderHTLC(
         timeout, delay, remoteKey,
         localKey, revocation, payHash);
     }
   } else {
     if (ourCommit) {
-      script = util.createSenderHTLC(
+      redeem = util.createSenderHTLC(
         timeout, delay, localKey,
         remoteKey, revocation, payHash);
     } else {
-      script = util.createReceiverHTLC(
+      redeem = util.createReceiverHTLC(
         timeout, delay, localKey,
         remoteKey, revocation, payHash);
     }
   }
 
-  htlcHash = util.toWitnessScripthash(script);
-  valuePending = pd.value;
+  script = util.toWitnessScripthash(redeem);
+  pending = pd.value;
 
   output = new bcoin.output();
-  output.script = htlcHash;
-  output.value = valuePending;
+  output.script = script;
+  output.value = pending;
 
   commitTX.addOutput(output);
 }
