@@ -18,7 +18,6 @@ var CommitRevocation = wire.CommitRevocation;
 var HTLCAddRequest = wire.HTLCAddRequest;
 var List = require('./list');
 
-
 // TestCommitmentSpendValidation test the spendability of both outputs within
 // the commitment transaction.
 //

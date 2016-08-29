@@ -1,3 +1,5 @@
+'use strict';
+
 var utils = require('../bcoin/lib/utils/utils');
 var bcoin = require('../bcoin');
 var constants = bcoin.constants;
