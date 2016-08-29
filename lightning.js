@@ -731,7 +731,7 @@ function evalHTLCView(view, ourBalance, theirBalance, nextHeight, remoteChain) {
       continue;
     addEntry = this.theirLogIndex[entry.parentIndex];
     skipThem[addEntry.value.index] = true;
-    processRemoveEntry(entry, true);
+    processRemoveEntry(entry, filtered, nextHeight, remoteChain, true);
   }
 
   for (i = 0; i < view.theirUpdates.length; i++) {
@@ -740,7 +740,7 @@ function evalHTLCView(view, ourBalance, theirBalance, nextHeight, remoteChain) {
       continue;
     addEntry = this.ourLogIndex[entry.parentIndex];
     skipUs[addEntry.value.index] = true;
-    processRemoveEntry(entry, false);
+    processRemoveEntry(entry, filtered, nextHeight, remoteChain, false);
   }
 
   for (i = 0; i < view.ourUpdates.length; i++) {
@@ -748,7 +748,7 @@ function evalHTLCView(view, ourBalance, theirBalance, nextHeight, remoteChain) {
     isAdd = entry.entryType === updateType.ADD;
     if (!isAdd || skipUs[entry.index])
       continue;
-    processAddEntry(entry, false);
+    processAddEntry(entry, filtered, nextHeight, remoteChain, false);
     filtered.ourUpdates.push(entry);
   }
 
@@ -757,62 +757,62 @@ function evalHTLCView(view, ourBalance, theirBalance, nextHeight, remoteChain) {
     isAdd = entry.entryType === updateType.ADD;
     if (!isAdd || skipThem[entry.index])
       continue;
-    processAddEntry(entry, true);
+    processAddEntry(entry, filtered, nextHeight, remoteChain, true);
     filtered.theirUpdates.push(entry);
   }
 
-  function processAddEntry(htlc, isIncoming) {
-    var addHeight;
-
-    if (remoteChain)
-      addHeight = htlc.addCommitHeightRemote;
-    else
-      addHeight = htlc.addCommitHeightLocal;
-
-    if (addHeight !== 0)
-      return;
-
-    if (isIncoming)
-      filtered.theirBalance -= htlc.value;
-    else
-      filtered.ourBalance -= htlc.value;
-
-    if (remoteChain)
-      htlc.addCommitHeightRemote = nextHeight;
-    else
-      htlc.addCommitHeightLocal = nextHeight;
-  }
-
-  function processRemoveEntry(htlc, isIncoming) {
-    var removeHeight;
-
-    if (remoteChain)
-      removeHeight = htlc.removeCommitHeightRemote;
-    else
-      removeHeight = htlc.removeCommitHeightLocal;
-
-    if (removeHeight !== 0)
-      return;
-
-    if (isIncoming) {
-      if (htlc.entryType === updateType.SETTLE)
-        filtered.ourBalance += htlc.value;
-      else if (htlc.entryType === updateType.TIMEOUT)
-        filtered.theirBalance += htlc.value;
-    } else {
-      if (htlc.entryType === updateType.SETTLE)
-        filtered.theirBalance += htlc.value;
-      else if (htlc.entryType === updateType.TIMEOUT)
-        filtered.ourBalance += htlc.value;
-    }
-
-    if (remoteChain)
-      htlc.removeCommitHeightRemote = nextHeight;
-    else
-      htlc.removeCommitHeightLocal = nextHeight;
-  }
-
   return filtered;
+}
+
+function processAddEntry(htlc, filtered, nextHeight, remoteChain, isIncoming) {
+  var addHeight;
+
+  if (remoteChain)
+    addHeight = htlc.addCommitHeightRemote;
+  else
+    addHeight = htlc.addCommitHeightLocal;
+
+  if (addHeight !== 0)
+    return;
+
+  if (isIncoming)
+    filtered.theirBalance -= htlc.value;
+  else
+    filtered.ourBalance -= htlc.value;
+
+  if (remoteChain)
+    htlc.addCommitHeightRemote = nextHeight;
+  else
+    htlc.addCommitHeightLocal = nextHeight;
+}
+
+function processRemoveEntry(htlc, filtered, nextHeight, remoteChain, isIncoming) {
+  var removeHeight;
+
+  if (remoteChain)
+    removeHeight = htlc.removeCommitHeightRemote;
+  else
+    removeHeight = htlc.removeCommitHeightLocal;
+
+  if (removeHeight !== 0)
+    return;
+
+  if (isIncoming) {
+    if (htlc.entryType === updateType.SETTLE)
+      filtered.ourBalance += htlc.value;
+    else if (htlc.entryType === updateType.TIMEOUT)
+      filtered.theirBalance += htlc.value;
+  } else {
+    if (htlc.entryType === updateType.SETTLE)
+      filtered.theirBalance += htlc.value;
+    else if (htlc.entryType === updateType.TIMEOUT)
+      filtered.ourBalance += htlc.value;
+  }
+
+  if (remoteChain)
+    htlc.removeCommitHeightRemote = nextHeight;
+  else
+    htlc.removeCommitHeightLocal = nextHeight;
 }
 
 Channel.prototype.signNextCommitment = function signNextCommitment() {
