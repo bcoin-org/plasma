@@ -1,8 +1,8 @@
 'use strict';
 
-var bcoin = require('../bcoin');
+var bcoin = require('bcoin');
 var constants = bcoin.constants;
-var utils = require('../bcoin/lib/utils/utils');
+var utils = require('bcoin/lib/utils/utils');
 var assert = utils.assert;
 var elkrem = require('./elkrem');
 var ElkremSender = elkrem.ElkremSender;

@@ -1,6 +1,6 @@
 'use strict';
 
-var bcoin = require('../bcoin');
+var bcoin = require('bcoin');
 var constants = bcoin.constants;
 
 function CommitRevocation() {

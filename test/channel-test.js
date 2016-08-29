@@ -1,11 +1,11 @@
 'use strict';
 
-var bcoin = require('../../bcoin');
+var bcoin = require('bcoin');
 var constants = bcoin.constants;
-var utils = require('../../bcoin/lib/utils/utils');
+var utils = require('bcoin/lib/utils/utils');
 var assert = utils.assert;
-var BufferWriter = require('../../bcoin/lib/utils/writer');
-var BufferReader = require('../../bcoin/lib/utils/reader');
+var BufferWriter = require('bcoin/lib/utils/writer');
+var BufferReader = require('bcoin/lib/utils/reader');
 var opcodes = constants.opcodes;
 var hashType = constants.hashType;
 var elkrem = require('../elkrem');

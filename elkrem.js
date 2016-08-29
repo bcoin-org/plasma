@@ -1,7 +1,7 @@
 'use strict';
 
-var utils = require('../bcoin/lib/utils/utils');
-var bcoin = require('../bcoin');
+var utils = require('bcoin/lib/utils/utils');
+var bcoin = require('bcoin');
 var constants = bcoin.constants;
 
 var maxIndex = 281474976710654; // 2^48 - 2

@@ -1,9 +1,9 @@
 'use strict';
 
-var bcoin = require('../bcoin');
+var bcoin = require('bcoin');
 var bn = require('bn.js');
 var constants = bcoin.constants;
-var utils = require('../bcoin/lib/utils/utils');
+var utils = require('bcoin/lib/utils/utils');
 var assert = utils.assert;
 var opcodes = constants.opcodes;
 var hashType = constants.hashType;
