@@ -1,7 +1,7 @@
 'use strict';
 
 var bcoin = require('bcoin');
-var bn = require('bn.js');
+var bn = bcoin.bn;
 var constants = bcoin.constants;
 var utils = require('bcoin/lib/utils/utils');
 var assert = utils.assert;
@@ -30,8 +30,6 @@ util.toMultisig = function(k1, k2) {
   script.push(opcodes.OP_2);
   script.push(opcodes.OP_CHECKMULTISIG);
   script.compile();
-
-  // return bcoin.script.fromMultisig(2, 2, [k1, k2]);
 
   return script;
 };
