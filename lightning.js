@@ -15,6 +15,7 @@ var assert = utils.assert;
 var BufferWriter = require('../bcoin/lib/utils/writer');
 var BufferReader = require('../bcoin/lib/utils/reader');
 var opcodes = constants.opcodes;
+var hashType = constants.hashType;
 var util = {};
 
 // https://github.com/lightningnetwork/lnd/blob/master/lnwallet/script_utils.go
@@ -133,7 +134,7 @@ util.createSenderHTLC = function(absTimeout, relTimeout, senderKey, recKey, revH
 };
 
 util.senderSpendRedeem = function(commitScript, recKey, sweep, payImage) {
-  var sig = sweep.signature(0, commitScript, recKey, constants.hashType.ALL, 1);
+  var sig = sweep.signature(0, commitScript, recKey, hashType.ALL, 1);
   var witness = new bcoin.witness();
   witness.push(sig);
   witness.push(payImage);
@@ -145,7 +146,7 @@ util.senderSpendRedeem = function(commitScript, recKey, sweep, payImage) {
 };
 
 util.senderSpendRevoke = function(commitScript, recKey, sweep, revImage) {
-  var sig = sweep.signature(0, commitScript, recKey, constants.hashType.ALL, 1);
+  var sig = sweep.signature(0, commitScript, recKey, hashType.ALL, 1);
   var witness = new bcoin.witness();
   witness.push(sig);
   witness.push(revImage);
@@ -159,11 +160,10 @@ util.senderSpendRevoke = function(commitScript, recKey, sweep, revImage) {
 util.senderSpendTimeout = function(commitScript, senderKey, sweep, absTimeout, relTime) {
   var sig, witness;
 
+  sweep.setSequence(0, relTime);
   sweep.setLocktime(absTimeout);
-  sweep.inputs[0].sequence = util.toSequence(relTime, false);
-  sweep.version = 2;
 
-  sig = sweep.signature(0, commitScript, senderKey, constants.hashType.ALL, 1);
+  sig = sweep.signature(0, commitScript, senderKey, hashType.ALL, 1);
 
   witness = new bcoin.witness();
   witness.push(sig);
@@ -208,10 +208,9 @@ util.createReceiverHTLC = function(absTimeout, relTimeout, senderKey, recKey, re
 util.recSpendRedeem = function(commitScript, recKey, sweep, payImage, relTime) {
   var sig, witness;
 
-  sweep.inputs[0].sequence = util.toSequence(relTime, false);
-  sweep.version = 2;
+  sweep.setSequence(0, relTime);
 
-  sig = sweep.signature(0, commitScript, recKey, constants.hashType.ALL, 1);
+  sig = sweep.signature(0, commitScript, recKey, hashType.ALL, 1);
 
   witness = new bcoin.witness();
   witness.push(sig);
@@ -224,7 +223,7 @@ util.recSpendRedeem = function(commitScript, recKey, sweep, payImage, relTime) {
 };
 
 util.recSpendRevoke = function(commitScript, senderKey, sweep, revImage) {
-  var sig = sweep.signature(0, commitScript, senderKey, constants.hashType.ALL, 1);
+  var sig = sweep.signature(0, commitScript, senderKey, hashType.ALL, 1);
   var witness = new bcoin.witness();
   witness.push(sig);
   witness.push(revImage);
@@ -240,7 +239,7 @@ util.recSpendTimeout = function(commitScript, senderKey, sweep, absTimeout) {
 
   sweep.setLocktime(absTimeout);
 
-  sig = sweep.signature(0, commitScript, senderKey, constants.hashType.ALL, 1);
+  sig = sweep.signature(0, commitScript, senderKey, hashType.ALL, 1);
 
   witness = new bcoin.witness();
   witness.push(sig);
@@ -274,10 +273,9 @@ util.commitUnencumbered = function commitUnencumbered(key) {
 util.commitSpendTimeout = function commitSpendTimeout(commitScript, blockTimeout, selfKey, sweep) {
   var sig, witness;
 
-  sweep.inputs[0].sequence = util.toSequence(blockTimeout, false);
-  sweep.version = 2;
+  sweep.setSequence(0, blockTimeout);
 
-  sig = sweep.signature(0, commitScript, selfKey, constants.hashType.ALL, 1);
+  sig = sweep.signature(0, commitScript, selfKey, hashType.ALL, 1);
   witness = new bcoin.witness();
   witness.push(sig);
   witness.push(new bn(0));
@@ -288,7 +286,7 @@ util.commitSpendTimeout = function commitSpendTimeout(commitScript, blockTimeout
 };
 
 util.commitSpendRevoke = function commitSpendRevoke(commitScript, revPriv, sweep) {
-  var sig = sweep.signature(0, commitScript, revPriv, constants.hashType.ALL, 1);
+  var sig = sweep.signature(0, commitScript, revPriv, hashType.ALL, 1);
   var witness = new bcoin.witness();
   witness.push(sig);
   witness.push(new bn(1));
@@ -299,19 +297,12 @@ util.commitSpendRevoke = function commitSpendRevoke(commitScript, revPriv, sweep
 
 util.commitSpendNoDelay = function commitSpendNoDelay(commitScript, commitPriv, sweep) {
   var pkh = bcoin.script.fromPubkeyhash(commitScript.get(1));
-  var sig = sweep.signature(0, pkh, commitPriv, constants.hashType.ALL, 1);
+  var sig = sweep.signature(0, pkh, commitPriv, hashType.ALL, 1);
   var witness = new bcoin.witness();
   witness.push(sig);
   witness.push(bcoin.ec.publicKeyCreate(commitPriv, true));
   witness.compile();
   return witness;
-};
-
-util.toSequence = function(locktime, seconds) {
-  if (!seconds)
-    return 0x0000ffff & locktime;
-
-  return (1 << 22) | (locktime >>> 9);
 };
 
 util.deriveRevPub = function(commitPub, revImage) {
@@ -332,7 +323,9 @@ util.deriveElkremRoot = function(localKey, remoteKey) {
 };
 
 util.createCommitTX = function(
-  fundingOutput, selfKey, theirKey, revKey, csvTimeout, valueToSelf, valueToThem) {
+  fundingOutput, selfKey, theirKey, revKey,
+  csvTimeout, valueToSelf, valueToThem
+) {
   var ourRedeem = util.commitSelf(csvTimeout, selfKey, revKey);
   var payToUs = util.toWitnessScripthash(ourRedeem);
   var payToThem = util.commitUnencumbered(theirKey);
@@ -541,24 +534,6 @@ function PaymentDescriptor() {
   this.settled = false;
 }
 
-PaymentDescriptor.prototype.clone = function clone() {
-  var pd = new PaymentDescriptor();
-  pd.paymentHash = this.paymentHash;
-  pd.timeout = this.timeout;
-  pd.value = this.value;
-  pd.index = this.index;
-  pd.parentIndex = this.parentIndex;
-  pd.payload = this.payload;
-  pd.entryType = this.entryType;
-  pd.addCommitHeightRemote = this.addCommitHeightRemote;
-  pd.addCommitHeightLocal = this.addCommitHeightLocal;
-  pd.removeCommitHeightRemote = this.removeCommitHeightRemote;
-  pd.removeCommitHeightLocal = this.removeCommitHeightLocal;
-  pd.isForwarded = this.isForwarded;
-  pd.settled = this.settled;
-  return pd;
-};
-
 function Commitment() {
   this.height = 0;
   this.ourMessageIndex = 0;
@@ -570,24 +545,28 @@ function Commitment() {
 }
 
 function CommitmentChain(height) {
-  this.commitments = [];
+  this.list = new List();
   this.startingHeight = height || 0;
 }
 
 CommitmentChain.prototype.add = function(c) {
-  this.commitments.push(c);
+  this.list.push(c);
 };
 
 CommitmentChain.prototype.advanceTail = function() {
-  this.commitments.shift();
+  this.list.shift();
 };
 
 CommitmentChain.prototype.tip = function() {
-  return this.commitments[this.commitments.length - 1];
+  if (!this.list.tail)
+    return;
+  return this.list.tail.value;
 };
 
 CommitmentChain.prototype.tail = function() {
-  return this.commitments[0];
+  if (!this.list.head)
+    return;
+  return this.list.head.value;
 };
 
 function HTLCView(ourUpdates, theirUpdates) {
@@ -608,8 +587,8 @@ function Channel(options) {
   this.remoteCommitChain = new CommitmentChain();
   this.localCommitChain = new CommitmentChain();
   this.state = options.state;
-  this.ourUpdateLog = [];
-  this.theirUpdateLog = [];
+  this.ourUpdateLog = new List();
+  this.theirUpdateLog = new List();
   this.ourLogIndex = {};
   this.theirLogIndex = {};
   this.fundingInput = new bcoin.coin();
@@ -722,16 +701,16 @@ function getCommitmentView(remoteChain, ourLogIndex, theirLogIndex, revKey, revH
 Channel.prototype.getHTLCView = function getHTLCView(theirLogIndex, ourLogIndex) {
   var ours = [];
   var theirs = [];
-  var i, htlc;
+  var item, htlc;
 
-  for  (i = 0; i < this.ourUpdateLog.length; i++) {
-    htlc = this.ourUpdateLog[i];
+  for (item = this.ourUpdateLog.head; item; item = item.next) {
+    htlc = item.value;
     if (htlc.index < ourLogIndex)
       ours.push(htlc);
   }
 
-  for  (i = 0; i < this.theirUpdateLog.length; i++) {
-    htlc = this.theirUpdateLog[i];
+  for (item = this.theirUpdateLog.head; item; item = item.next) {
+    htlc = item.value;
     if (htlc.index < theirLogIndex)
       theirs.push(htlc);
   }
@@ -752,7 +731,7 @@ function evalHTLCView(view, balances, nextHeight, remoteChain) {
     if (entry.entryType === updateType.ADD)
       continue;
     addEntry = this.theirLogIndex[entry.parentIndex];
-    skipThem[addEntry.index] = true;
+    skipThem[addEntry.value.index] = true;
     processRemoveEntry(entry, true);
   }
 
@@ -761,7 +740,7 @@ function evalHTLCView(view, balances, nextHeight, remoteChain) {
     if (entry.entryType === updateType.ADD)
       continue;
     addEntry = this.ourLogIndex[entry.parentIndex];
-    skipUs[addEntry.index] = true;
+    skipUs[addEntry.value.index] = true;
     processRemoveEntry(entry, false);
   }
 
@@ -858,7 +837,7 @@ Channel.prototype.signNextCommitment = function signNextCommitment() {
   sig = view.tx.signature(0,
     this.state.fundingScript,
     this.state.ourMultisigKey,
-    constants.hashType.ALL,
+    hashType.ALL,
     1);
 
   this.remoteCommitChain.add(view);
@@ -891,7 +870,7 @@ Channel.prototype.receiveNewCommitment = function receiveNewCommitment(sig, ourL
 
   localCommit.inputs[0].coin.value = this.state.capacity;
 
-  msg = localCommit.signatureHash(0, multisigScript, constants.hashType.ALL, 1);
+  msg = localCommit.signatureHash(0, multisigScript, hashType.ALL, 1);
   result = bcoin.ec.verify(msg, sig, theirMultisigKey);
 
   if (!result)
@@ -943,7 +922,7 @@ Channel.prototype.receiveRevocation = function receiveRevocation(revMsg) {
   var ourCommitKey, currentRevKey, pendingRev, remoteElkrem;
   var revPriv, revPub, revHash, nextRev;
   var remoteChainTail, localChainTail;
-  var i, htlcsToForward, htlc, uncommitted;
+  var item, htlcsToForward, htlc, uncommitted;
 
   if (utils.equal(revMsg.revocation, constants.ZERO_HASH)) {
     this.revocationWindow.push(revMsg);
@@ -984,8 +963,8 @@ Channel.prototype.receiveRevocation = function receiveRevocation(revMsg) {
 
   htlcsToForward = [];
 
-  for (i = 0; i < this.theirUpdateLog.length; i++) {
-    htlc = this.theirUpdateLog[i];
+  for (item = this.theirUpdateLog.head; item; item = item.next) {
+    htlc = item.value;
 
     if (htlc.isForwarded)
       continue;
@@ -1022,15 +1001,14 @@ Channel.prototype.receiveRevocation = function receiveRevocation(revMsg) {
 Channel.prototype.compactLogs = compactLogs;
 
 function compactLogs(ourLog, theirLog, localChainTail, remoteChainTail) {
-  var self = this;
-
   function compact(logA, logB, indexB, indexA) {
     var removeA = [];
     var removeB = [];
-    var i, j, htlc, parentLink, parentIndex;
+    var item, next, j, htlc, parentLink, parentIndex;
 
-    for (i = 0; i < logA.length; i++) {
-      htlc = logA[i];
+    for (item = logA.head; item; item = next) {
+      htlc = item.value;
+      next = item.next;
 
       if (htlc.entryType === updateType.ADD)
         continue;
@@ -1043,26 +1021,13 @@ function compactLogs(ourLog, theirLog, localChainTail, remoteChainTail) {
       if (remoteChainTail >= htlc.removeCommitHeightRemote
           && localChainTail >= htlc.removeCommitHeightLocal) {
         parentLink = indexB[htlc.parentIndex];
-        assert(htlc.parentIndex === parentLink.index);
-        parentIndex = parentLink.index;
-        removeB.push(parentLink);
-        removeA.push(htlc);
+        assert(htlc.parentIndex === parentLink.value.index);
+        parentIndex = parentLink.value.index;
+        logB.removeItem(parentLink);
+        logA.removeItem(item);
         delete indexB[parentIndex];
         delete indexA[htlc.index];
       }
-    }
-
-    // TODO: Optimize -- O(fucked)
-    for (i = removeB.length - 1; i >= 0; i--) {
-      htlc = removeB[i];
-      j = logB.indexOf(htlc);
-      logB.splice(j, 1);
-    }
-
-    for (i = removeA.length - 1; i >= 0; i--) {
-      htlc = removeA[i];
-      j = logA.indexOf(htlc);
-      logA.splice(j, 1);
     }
   }
 
@@ -1104,14 +1069,16 @@ Channel.prototype.extendRevocationWindow = function extendRevocationWindow() {
 
 Channel.prototype.addHTLC = function addHTLC(htlc) {
   var pd = new PaymentDescriptor();
+  var item;
+
   pd.entryType = updateType.ADD;
   pd.paymentHash = htlc.redemptionHashes[0];
   pd.timeout = htlc.expiry;
   pd.value = htlc.value;
   pd.index = this.ourLogCounter;
 
-  this.ourLogIndex[pd.index] = pd;
-  this.ourUpdateLog.push(pd);
+  item = this.ourUpdateLog.push(pd);
+  this.ourLogIndex[pd.index] = item;
   this.ourLogCounter++;
 
   return pd.index;
@@ -1119,14 +1086,16 @@ Channel.prototype.addHTLC = function addHTLC(htlc) {
 
 Channel.prototype.receiveHTLC = function receiveHTLC(htlc) {
   var pd = new PaymentDescriptor();
+  var item;
+
   pd.entryType = updateType.ADD;
   pd.paymentHash = htlc.redemptionHashes[0];
   pd.timeout = htlc.expiry;
   pd.value = htlc.value;
   pd.index = this.theirLogCounter;
 
-  this.theirLogIndex[pd.index] = pd;
-  this.theirUpdateLog.push(pd);
+  item = this.theirUpdateLog.push(pd);
+  this.theirLogIndex[pd.index] = item;
   this.theirLogCounter++;
 
   return pd.index;
@@ -1134,10 +1103,10 @@ Channel.prototype.receiveHTLC = function receiveHTLC(htlc) {
 
 Channel.prototype.settleHTLC = function settleHTLC(preimage) {
   var paymentHash = utils.sha256(preimage);
-  var i, htlc, parentPd, pd, targetHTLC;
+  var item, htlc, parentPd, pd, targetHTLC;
 
-  for (i = 0; i < this.theirUpdateLog.length; i++) {
-    htlc = this.theirUpdateLog[i];
+  for (item = this.theirUpdateLog.head; item; item = item.next) {
+    htlc = item.value;
 
     if (htlc.entryType !== updateType.ADD)
       continue;
@@ -1174,7 +1143,7 @@ Channel.prototype.receiveHTLCSettle = function receiveHTLCSettle(preimage, logIn
   if (!addEntry)
     throw new Error('Non existent log entry.');
 
-  htlc = addEntry;
+  htlc = addEntry.value;
 
   if (!utils.equal(htlc.paymentHash, paymentHash))
     throw new Error('Invalid payment hash.');
@@ -1260,7 +1229,7 @@ Channel.prototype.initCooperativeClose = function initCooperativeClose() {
   sig = closeTX.signature(0,
     this.state.fundingScript,
     this.state.ourMultisigKey,
-    constants.hashType.ALL, 1);
+    hashType.ALL, 1);
 
   return {
     sig: sig,
@@ -1291,7 +1260,7 @@ Channel.prototype.completeCooperativeClose = function completeCooperativeClose(r
   redeem = this.state.fundingScript;
   sig = closeTX.signature(0,
     redeem, this.state.ourMultisigKey,
-    constants.hashType.ALL, 1);
+    hashType.ALL, 1);
 
   ourKey = bcoin.ec.publicKeyCreate(this.state.ourMultisigKey, true);
   theirKey = this.state.theirMultisigKey;
@@ -1335,6 +1304,7 @@ function ChannelState(options) {
   this.ts = 0;
   this.isPrevState = false;
   this.db = null;
+
   if (options)
     this.fromOptions(options);
 }
@@ -1412,6 +1382,239 @@ ChannelState.prototype.fullSync = function() {
 
 ChannelState.prototype.syncRevocation = function() {
 };
+
+/**
+ * A linked list.
+ * @exports List
+ * @constructor
+ */
+
+function List() {
+  if (!(this instanceof List))
+    return new List();
+
+  this.head = null;
+  this.tail = null;
+}
+
+/**
+ * Reset the cache. Clear all items.
+ */
+
+List.prototype.reset = function reset() {
+  var item, next;
+
+  for (item = this.head; item; item = next) {
+    next = item.next;
+    item.prev = null;
+    item.next = null;
+  }
+
+  assert(!item);
+
+  this.head = null;
+  this.tail = null;
+};
+
+/**
+ * Remove the first item in the list.
+ */
+
+List.prototype.shiftItem = function shiftItem() {
+  var item = this.head;
+
+  if (!item)
+    return;
+
+  this.removeItem(item);
+
+  return item;
+};
+
+/**
+ * Prepend an item to the linked list (sets new head).
+ * @private
+ * @param {ListItem}
+ */
+
+List.prototype.unshiftItem = function unshiftItem(item) {
+  this.insertItem(null, item);
+};
+
+/**
+ * Append an item to the linked list (sets new tail).
+ * @private
+ * @param {ListItem}
+ */
+
+List.prototype.pushItem = function pushItem(item) {
+  this.insertItem(this.tail, item);
+};
+
+/**
+ * Remove the last item in the list.
+ */
+
+List.prototype.popItem = function popItem() {
+  var item = this.tail;
+
+  if (!item)
+    return;
+
+  this.removeItem(item);
+
+  return item;
+};
+
+/**
+ * Remove the first item in the list.
+ */
+
+List.prototype.shift = function shift() {
+  var item = this.shiftItem();
+  if (!item)
+    return;
+  return item.value;
+};
+
+/**
+ * Prepend an item to the linked list (sets new head).
+ * @private
+ * @param {ListItem}
+ */
+
+List.prototype.unshift = function unshift(value) {
+  var item = new ListItem(value);
+  this.unshiftItem(item);
+  return item;
+};
+
+/**
+ * Append an item to the linked list (sets new tail).
+ * @private
+ * @param {ListItem}
+ */
+
+List.prototype.push = function push(value) {
+  var item = new ListItem(value);
+  this.pushItem(item);
+  return item;
+};
+
+/**
+ * Remove the last item in the list.
+ */
+
+List.prototype.pop = function pop() {
+  var item = this.popItem();
+  if (!item)
+    return;
+  return item.value;
+};
+
+/**
+ * Insert item into the linked list.
+ * @private
+ * @param {ListItem|null} ref
+ * @param {ListItem} item
+ */
+
+List.prototype.insertItem = function insertItem(ref, item) {
+  assert(!item.next);
+  assert(!item.prev);
+
+  if (ref == null) {
+    if (!this.head) {
+      this.head = item;
+      this.tail = item;
+    } else {
+      this.head.prev = item;
+      item.next = this.head;
+      this.head = item;
+    }
+    return;
+  }
+
+  item.next = ref.next;
+  item.prev = ref;
+  ref.next = item;
+
+  if (ref === this.tail)
+    this.tail = item;
+};
+
+/**
+ * Remove item from the linked list.
+ * @private
+ * @param {ListItem}
+ */
+
+List.prototype.removeItem = function removeItem(item) {
+  if (item.prev)
+    item.prev.next = item.next;
+
+  if (item.next)
+    item.next.prev = item.prev;
+
+  if (item === this.head)
+    this.head = item.next;
+
+  if (item === this.tail)
+    this.tail = item.prev || this.head;
+
+  if (!this.head)
+    assert(!this.tail);
+
+  if (!this.tail)
+    assert(!this.head);
+
+  item.prev = null;
+  item.next = null;
+};
+
+/**
+ * Convert the list to an array of items.
+ * @returns {Object[]}
+ */
+
+List.prototype.toArray = function toArray() {
+  var items = [];
+  var item;
+
+  for (item = this.head; item; item = item.next)
+    items.push(item.value);
+
+  return items;
+};
+
+/**
+ * Get the list size.
+ * @returns {Number}
+ */
+
+List.prototype.size = function size() {
+  var total = 0;
+  var item;
+
+  for (item = this.head; item; item = item.next)
+    total += 1;
+
+  return total;
+};
+
+/**
+ * Represents an LRU item.
+ * @constructor
+ * @private
+ * @param {String} key
+ * @param {Object} value
+ */
+
+function ListItem(value) {
+  this.value = value;
+  this.next = null;
+  this.prev = null;
+}
 
 // TestCommitmentSpendValidation test the spendability of both outputs within
 // the commitment transaction.
@@ -1682,7 +1885,7 @@ function createChannels() {
 
   var aliceState = new ChannelState({
     theirLNID: hdSeed,
-    id: fundingOutput, // supposed to be prevout. do outpoint.fromOptions
+    id: fundingOutput, // supposed to be an outpoint. do outpoint.fromOptions
     ourCommitKey: alice,
     theirCommitKey: bobPub,
     capacity: channelCapacity,
@@ -1833,13 +2036,13 @@ function simpleAddSettleWorkflow() {
   assert(channel.alice.revocationWindowEdge === 5);
   assert(channel.bob.revocationWindowEdge === 5);
 
-  assert(channel.alice.ourUpdateLog.length === 0);
-  assert(channel.alice.theirUpdateLog.length === 0);
+  assert(channel.alice.ourUpdateLog.size() === 0);
+  assert(channel.alice.theirUpdateLog.size() === 0);
   assert(Object.keys(channel.alice.ourLogIndex).length === 0);
   assert(Object.keys(channel.alice.theirLogIndex).length === 0);
 
-  assert(channel.bob.ourUpdateLog.length === 0);
-  assert(channel.bob.theirUpdateLog.length === 0);
+  assert(channel.bob.ourUpdateLog.size() === 0);
+  assert(channel.bob.theirUpdateLog.size() === 0);
   assert(Object.keys(channel.bob.ourLogIndex).length === 0);
   assert(Object.keys(channel.bob.theirLogIndex).length === 0);
 }
