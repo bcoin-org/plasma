@@ -19,6 +19,8 @@ var CommitRevocation = wire.CommitRevocation;
 var HTLCAddRequest = wire.HTLCAddRequest;
 var List = require('../list');
 
+bcoin.cache();
+
 // funding -> 2of2 multisig
 // commitment alice ->
 //   output 0: wp2sh(if [alice-revpub] checksig else [alicekey] checksigverify [csvtime] csv endif)
