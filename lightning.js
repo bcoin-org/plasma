@@ -7,13 +7,13 @@
 
 'use strict';
 
-var bcoin = require('./');
+var bcoin = require('../bcoin');
 var bn = require('bn.js');
 var constants = bcoin.constants;
-var utils = require('./lib/utils/utils');
+var utils = require('../bcoin/lib/utils/utils');
 var assert = utils.assert;
-var BufferWriter = require('./lib/utils/writer');
-var BufferReader = require('./lib/utils/reader');
+var BufferWriter = require('../bcoin/lib/utils/writer');
+var BufferReader = require('../bcoin/lib/utils/reader');
 var opcodes = constants.opcodes;
 var util = {};
 
