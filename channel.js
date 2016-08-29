@@ -135,12 +135,12 @@ function getCommitmentView(ourLogIndex, theirLogIndex, revKey, revHash, remoteCh
 
   if (remoteChain) {
     selfKey = this.state.theirCommitKey;
-    remoteKey = bcoin.ec.publicKeyCreate(this.state.ourCommitKey, true);
+    remoteKey = this.state.ourCommitPub;
     delay = this.state.remoteCSVDelay;
     delayBalance = filtered.theirBalance;
     p2wpkhBalance = filtered.ourBalance;
   } else {
-    selfKey = bcoin.ec.publicKeyCreate(this.state.ourCommitKey, true);
+    selfKey = this.state.ourCommitPub;
     remoteKey = this.state.theirCommitKey;
     delay = this.state.localCSVDelay;
     delayBalance = filtered.ourBalance;
@@ -629,7 +629,7 @@ Channel.prototype.channelPoint = function channelPoint() {
 Channel.prototype.pushHTLC = pushHTLC;
 
 function pushHTLC(commitTX, ourCommit, pd, revocation, delay, isIncoming) {
-  var localKey = bcoin.ec.publicKeyCreate(this.state.ourCommitKey, true);
+  var localKey = this.state.ourCommitPub;
   var remoteKey = this.state.theirCommitKey;
   var timeout = pd.timeout;
   var payHash = pd.paymentHash;
@@ -722,11 +722,13 @@ Channel.prototype.completeCooperativeClose = function completeCooperativeClose(r
   closeTX.inputs[0].coin.value = this.state.capacity;
 
   redeem = this.state.fundingScript;
+
   sig = closeTX.signature(0,
-    redeem, this.state.ourMultisigKey,
+    redeem,
+    this.state.ourMultisigKey,
     hashType.ALL, 1);
 
-  ourKey = bcoin.ec.publicKeyCreate(this.state.ourMultisigKey, true);
+  ourKey = this.state.ourMultisigPub;
   theirKey = this.state.theirMultisigKey;
   witness = util.spendMultisig(redeem, ourKey, sig, theirKey, remoteSig);
 

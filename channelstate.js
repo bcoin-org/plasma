@@ -13,6 +13,7 @@ function ChannelState(options) {
   this.id = new bcoin.outpoint();
   this.minRate = 0;
   this.ourCommitKey = null; // private
+  this.ourCommitPub = null;
   this.theirCommitKey = null; // public
   this.capacity = 0;
   this.ourBalance = 0;
@@ -21,6 +22,7 @@ function ChannelState(options) {
   this.ourCommitSig = null;
   this.fundingInput = new bcoin.coin();
   this.ourMultisigKey = null; // private
+  this.ourMiltisigPub = null;
   this.theirMultisigKey = null; // public
   this.fundingScript = new bcoin.script();
   this.localCSVDelay = 0;
@@ -47,8 +49,10 @@ ChannelState.prototype.fromOptions = function(options) {
   if (options.id)
     this.id = options.id;
 
-  if (options.ourCommitKey)
+  if (options.ourCommitKey) {
     this.ourCommitKey = options.ourCommitKey;
+    this.ourCommitPub = bcoin.ec.publicKeyCreate(this.ourCommitKey, true);
+  }
 
   if (options.theirCommitKey)
     this.theirCommitKey = options.theirCommitKey;
@@ -71,8 +75,10 @@ ChannelState.prototype.fromOptions = function(options) {
   if (options.fundingInput)
     this.fundingInput = options.fundingInput;
 
-  if (options.ourMultisigKey)
+  if (options.ourMultisigKey) {
     this.ourMultisigKey = options.ourMultisigKey;
+    this.ourMultisigPub = bcoin.ec.publicKeyCreate(this.ourMultisigKey, true);
+  }
 
   if (options.theirMultisigKey)
     this.theirMultisigKey = options.theirMultisigKey;
