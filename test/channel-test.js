@@ -21,19 +21,97 @@ var List = require('../list');
 
 bcoin.cache();
 
-// funding -> 2of2 multisig
-// commitment alice ->
-//   output 0: wp2sh(if [alice-revpub] checksig else [alicekey] checksigverify [csvtime] csv endif)
-//   output 1: wp2kh([bobkey])
-// commitment bob ->
-//   output 0: wp2sh(if [bob-revpub] checksig else [bobkey] checksigverify [csvtime] csv endif)
-//   output 1: wp2kh([alicekey])
+// Steps:
+// funding:
+// alice (5btc) & bob (5btc) funds -> wp2sh(2of2 multisig) (10btc)
+//
+// commitment (redeems from funding tx):
+// both sides have their own versions of the commit tx.
+// alice ->
+//   input 0: funding
+//   output 0 (5btc):
+//     wp2sh(if [revpub] checksig else [alicekey] checksigverify [csvtime] csv endif)
+//   output 1 (5btc):
+//     wp2kh([bobkey])
+// bob ->
+//   input 0: funding
+//   output 0 (5btc):
+//     wp2sh(if [revpub] checksig else [bobkey] checksigverify [csvtime] csv endif)
+//   output 1 (5btc):
+//     wp2kh([alicekey])
+//
+// updating state and revoking old commits:
+// alice can create a new htlc (1btc) and send it to bob:
+// this htlc gets tacked on as an output of the new commit tx.
+// alice ->
+//   input 0: funding
+//   output 0 (4btc):
+//     wp2sh(if [revpub] checksig else [alicekey] checksigverify [csvtime] csv endif)
+//   output 1 (5btc):
+//     wp2kh([bobkey])
+//   output 2 (1btc): sender htlc
+//     if if [revhash] else size [32] equalverify [payhash] endif swap
+//     sha256 equalverify [bobkey] checksig else [cltvtime] cltv [csvtime]
+//     csv 2drop [alicekey] checksig endif
+// alice signs the next commitment and sends the sig to bob.
+// bob also signs the next commitment and revokes the current commitment.
+// bob sends his sig and the revocation to alice.
+// alice revokes the current commitment and sends the revocation to bob.
+// at this point, the state is updated and the htlc is added to the _new_ commitment tx.
+// bob ->
+//   input 0: funding
+//   output 0 (5btc):
+//     wp2sh(if [revpub] checksig else [bobkey] checksigverify [csvtime] csv endif)
+//   output 1 (4btc):
+//     wp2kh([alicekey])
+//   output 2 (1btc): receiver htlc
+//     if size [32] equalverify sha256 [payhash] equalverify [csvtime] csv
+//     drop [bobkey] checksig else if sha256 [revhash] equalverify else [cltvtime]
+//     checklocktimeverify drop endif [alicekey] checksig endif
+//
+// payment preimages:
+// the receiver always creates the payment preimages, and only reveals the
+// preimage once the old state is revoked and the htlc is to be settled
+// (multiple htlcs throughout the entire network may be settled)
+//
+// revocation preimages:
+// the actual revocation preimages are the tweak values for key derivation.
+// the revocation preimages themselves are derived from the elkrem tree.
+// this means that alice can derive bob's necessary public revocation key,
+// but he does not know the private key yet without the revocation preimage.
+// when alice creates a script with bob's rev key, she does:
+// rev=elkrem[currentheight], revkey=derive(bobCommitPub, rev)
+// when she revokes a commit, she sends bob the revocation preimage.
+// bob can then do:
+// revpriv=derive(bobCommitPriv, rev)
+// and have his private key, thereby revoking the old commit
+//
+// if the commit state is updated, and bob's original commit tx is
+// broadcast, alice can redeem bob's output without a timeout,
+// effectively punishing him by taking all his money.
+//
+// closure:
+// alice can initiate a cooperative closure.
+// she signs the final tx of:
+//   input 0: funding
+//   output 0 (4btc): [alice-address]
+//   output 1 (6btc): [bob-address]
+// she sends the sig and txid to bob.
+// bob recreates the closure tx on his
+// side, verifies the sig and txid.
+// bob adds his sig and broadcasts the closure tx.
+
+function alloc(num) {
+  var buf = new Buffer(32);
+  buf.fill(num);
+  return buf;
+}
 
 function createChannels() {
-  var hdSeed = bcoin.ec.random(32);
-  var alice = bcoin.ec.generatePrivateKey();
+  var hdSeed = alloc(1);
+  var alice = alloc(2);
   var alicePub = bcoin.ec.publicKeyCreate(alice, true);
-  var bob = bcoin.ec.generatePrivateKey();
+  var bob = alloc(3);
   var bobPub = bcoin.ec.publicKeyCreate(bob, true);
   var channelCapacity = 10 * 1e8;
   var channelBalance = channelCapacity / 2;
@@ -46,6 +124,7 @@ function createChannels() {
   fundingOutput.hash = constants.ONE_HASH.toString('hex');
   fundingOutput.index = 0;
   fundingOutput.value = 1 * 1e8;
+  fundingOutput.script = redeem.output.script;
 
   var bobElkrem = new ElkremSender(util.deriveElkremRoot(bob, alicePub));
   var bobFirstRevoke = bobElkrem.getIndex(0);
@@ -63,11 +142,9 @@ function createChannels() {
     fundingOutput, bobPub, alicePub, bobRevKey,
     csvTimeoutAlice, channelBalance, channelBalance);
 
-  fundingOutput.script = redeem.output.script;
-
   var aliceState = new ChannelState({
     theirLNID: hdSeed,
-    id: fundingOutput, // supposed to be an outpoint. do outpoint.fromOptions
+    id: fundingOutput,
     ourCommitKey: alice,
     theirCommitKey: bobPub,
     capacity: channelCapacity,
@@ -136,15 +213,17 @@ describe('Channel', function() {
     assert(channel.alice.revocationWindowEdge === 3);
     assert(channel.bob.revocationWindowEdge === 3);
 
-    var payPreimage = bcoin.ec.random(32);
+    var payPreimage = alloc(4);
     var payHash = utils.sha256(payPreimage);
 
+    // Bob requests a payment from alice.
     var htlc = new HTLCAddRequest();
     htlc.redemptionHashes = [payHash];
     htlc.value = 1e8;
     htlc.expiry = 5;
 
     channel.alice.addHTLC(htlc);
+
     channel.bob.receiveHTLC(htlc);
 
     data = channel.alice.signNextCommitment();
@@ -169,6 +248,9 @@ describe('Channel', function() {
     htlcs = channel.bob.receiveRevocation(aliceRev);
     assert(htlcs && htlcs.length === 1);
 
+    // utils.log(channel.alice.localCommitChain.tip());
+    // utils.log(channel.bob.localCommitChain.tip());
+
     var aliceBalance = 4 * 1e8;
     var bobBalance = 5 * 1e8;
 
@@ -181,7 +263,6 @@ describe('Channel', function() {
     assert(channel.alice.revocationWindowEdge === 4);
     assert(channel.bob.revocationWindowEdge === 4);
 
-    // Bob learns of the preimage:
     var preimage = utils.copy(payPreimage);
     var settleIndex = channel.bob.settleHTLC(preimage);
 
