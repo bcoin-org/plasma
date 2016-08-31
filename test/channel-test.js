@@ -69,11 +69,6 @@ bcoin.cache();
 //     drop [bobkey] checksig else if sha256 [revhash] equalverify else [cltvtime]
 //     checklocktimeverify drop endif [alicekey] checksig endif
 //
-// payment preimages:
-// the receiver always creates the payment preimages, and only reveals the
-// preimage once the old state is revoked and the htlc is to be settled
-// (multiple htlcs throughout the entire network may be settled)
-//
 // revocation preimages:
 // the actual revocation preimages are the tweak values for key derivation.
 // the revocation preimages themselves are derived from the elkrem tree.
