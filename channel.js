@@ -29,6 +29,7 @@ var elkrem = require('./elkrem');
 var ElkremSender = elkrem.ElkremSender;
 var ElkremReceiver = elkrem.ElkremReceiver;
 var util = require('./scriptutil');
+var crypto = bcoin.crypto;
 var ChannelState = require('./channelstate');
 var wire = require('./wire');
 var CommitRevocation = wire.CommitRevocation;
@@ -338,7 +339,7 @@ Channel.prototype.receiveNewCommitment = function receiveNewCommitment(sig, ourL
   var nextHeight = this.currentHeight + 1;
   var revocation = this.state.localElkrem.getIndex(nextHeight);
   var revKey = util.deriveRevPub(theirCommitKey, revocation);
-  var revHash = utils.sha256(revocation);
+  var revHash = crypto.sha256(revocation);
   var view, localCommit, multisigScript;
   var msg, result;
 
@@ -382,7 +383,7 @@ Channel.prototype.revokeCurrentCommitment = function revokeCurrentCommitment() {
 
   revEdge = this.state.localElkrem.getIndex(this.revocationWindowEdge);
   revMsg.nextRevKey = util.deriveRevPub(theirCommitKey, revEdge);
-  revMsg.nextRevHash = utils.sha256(revEdge);
+  revMsg.nextRevHash = crypto.sha256(revEdge);
 
   this.localCommitChain.advanceTail();
   this.currentHeight++;
@@ -423,7 +424,7 @@ Channel.prototype.receiveRevocation = function receiveRevocation(revMsg) {
     throw new Error('Revocation key mistmatch.');
 
   if (!utils.equal(this.state.theirCurrentRevHash, constants.ZERO_HASH)) {
-    revHash = utils.sha256(pendingRev);
+    revHash = crypto.sha256(pendingRev);
     if (!utils.equal(this.state.theirCurrentRevHash, revHash))
       throw new Error('Revocation hash mismatch.');
   }
@@ -523,7 +524,7 @@ Channel.prototype.extendRevocationWindow = function extendRevocationWindow() {
 
   revMsg.channelPoint = this.state.id;
   revMsg.nextRevKey = util.deriveRevPub(theirCommitKey, revocation);
-  revMsg.nextRevHash = utils.sha256(revocation);
+  revMsg.nextRevHash = crypto.sha256(revocation);
 
   this.revocationWindowEdge++;
 
@@ -565,7 +566,7 @@ Channel.prototype.receiveHTLC = function receiveHTLC(htlc) {
 };
 
 Channel.prototype.settleHTLC = function settleHTLC(preimage) {
-  var paymentHash = utils.sha256(preimage);
+  var paymentHash = crypto.sha256(preimage);
   var item, htlc, target, pd;
 
   for (item = this.theirUpdateLog.head; item; item = item.next) {
@@ -600,7 +601,7 @@ Channel.prototype.settleHTLC = function settleHTLC(preimage) {
 };
 
 Channel.prototype.receiveHTLCSettle = function receiveHTLCSettle(preimage, logIndex) {
-  var paymentHash = utils.sha256(preimage);
+  var paymentHash = crypto.sha256(preimage);
   var addEntry = this.ourLogIndex[logIndex];
   var htlc, pd;
 

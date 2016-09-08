@@ -4,6 +4,7 @@ var bcoin = require('bcoin');
 var bn = bcoin.bn;
 var constants = bcoin.constants;
 var utils = require('bcoin/lib/utils/utils');
+var crypto = require('bcoin/lib/crypto/crypto');
 var assert = utils.assert;
 var opcodes = constants.opcodes;
 var hashType = constants.hashType;
@@ -244,7 +245,7 @@ util.commitSelf = function commitSelf(csvTime, selfKey, revKey) {
 };
 
 util.commitUnencumbered = function commitUnencumbered(key) {
-  return bcoin.script.fromProgram(0, utils.hash160(key));
+  return bcoin.script.fromProgram(0, crypto.hash160(key));
 };
 
 util.commitSpendTimeout = function commitSpendTimeout(commitScript, blockTimeout, selfKey, sweep) {
@@ -294,8 +295,8 @@ util.deriveElkremRoot = function(localKey, remoteKey) {
   var secret = localKey; // private
   var salt = remoteKey; // public
   var info = new Buffer('elkrem', 'ascii');
-  var prk = utils.hkdfExtract(secret, salt, 'sha256');
-  var root = utils.hkdfExpand(prk, info, 32, 'sha256');
+  var prk = crypto.hkdfExtract(secret, salt, 'sha256');
+  var root = crypto.hkdfExpand(prk, info, 32, 'sha256');
   return root;
 };
 

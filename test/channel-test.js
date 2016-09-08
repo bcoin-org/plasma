@@ -3,6 +3,7 @@
 var bcoin = require('bcoin');
 var constants = bcoin.constants;
 var utils = require('bcoin/lib/utils/utils');
+var crypto = bcoin.crypto;
 var assert = utils.assert;
 var BufferWriter = require('bcoin/lib/utils/writer');
 var BufferReader = require('bcoin/lib/utils/reader');
@@ -209,7 +210,7 @@ describe('Channel', function() {
     assert(channel.bob.revocationWindowEdge === 3);
 
     var payPreimage = alloc(4);
-    var payHash = utils.sha256(payPreimage);
+    var payHash = crypto.sha256(payPreimage);
 
     // Bob requests a payment from alice.
     var htlc = new HTLCAddRequest();

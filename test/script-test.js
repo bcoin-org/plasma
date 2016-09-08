@@ -3,6 +3,7 @@
 var bcoin = require('bcoin');
 var constants = bcoin.constants;
 var utils = require('bcoin/lib/utils/utils');
+var crypto = bcoin.crypto;
 var assert = utils.assert;
 var BufferWriter = require('bcoin/lib/utils/writer');
 var BufferReader = require('bcoin/lib/utils/reader');
@@ -30,7 +31,7 @@ describe('Script', function() {
   //   * Bob's spend from his unencumbered output within Alice's commitment
   //     transaction.
   it('should test commitment spend validation', function() {
-    var hdSeed = bcoin.ec.random(32);
+    var hdSeed = crypto.randomBytes(32);
 
     // Setup funding transaction output.
     var fundingOutput = new bcoin.coin();
@@ -100,7 +101,7 @@ describe('Script', function() {
   //    * invalid sequence for CSV
   //    * valid lock-time+sequence, valid sig
   it('should test HTLC sender spend validation', function() {
-    var hdSeed = bcoin.ec.random(32);
+    var hdSeed = crypto.randomBytes(32);
 
     var fundingOutput = new bcoin.coin();
     fundingOutput.hash = constants.ONE_HASH.toString('hex');
@@ -108,10 +109,10 @@ describe('Script', function() {
     fundingOutput.value = 1 * 1e8;
 
     var revImage = hdSeed;
-    var revHash = utils.sha256(revImage);
+    var revHash = crypto.sha256(revImage);
     var payImage = utils.copy(revHash);
     payImage[0] ^= 1;
-    var payHash = utils.sha256(payImage);
+    var payHash = crypto.sha256(payImage);
 
     var alice = bcoin.ec.generatePrivateKey();
     var alicePub = bcoin.ec.publicKeyCreate(alice, true);
@@ -179,7 +180,7 @@ describe('Script', function() {
   //     * refund w/ invalid lock time
   //     * refund w/ valid lock time
   it('should test HTLC receiver spend validation', function() {
-    var hdSeed = bcoin.ec.random(32);
+    var hdSeed = crypto.randomBytes(32);
 
     var fundingOutput = new bcoin.coin();
     fundingOutput.hash = constants.ONE_HASH.toString('hex');
@@ -187,10 +188,10 @@ describe('Script', function() {
     fundingOutput.value = 1 * 1e8;
 
     var revImage = hdSeed;
-    var revHash = utils.sha256(revImage);
+    var revHash = crypto.sha256(revImage);
     var payImage = utils.copy(revHash);
     payImage[0] ^= 1;
-    var payHash = utils.sha256(payImage);
+    var payHash = crypto.sha256(payImage);
 
     var alice = bcoin.ec.generatePrivateKey();
     var alicePub = bcoin.ec.publicKeyCreate(alice, true);

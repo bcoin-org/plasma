@@ -1,6 +1,7 @@
 'use strict';
 
 var utils = require('bcoin/lib/utils/utils');
+var crypto = require('bcoin/lib/crypto/crypto');
 var bcoin = require('bcoin');
 var constants = bcoin.constants;
 
@@ -102,14 +103,14 @@ function ElkremNode(hash, h, i) {
  */
 
 function leftHash(hash) {
-  return utils.hash256(hash);
+  return crypto.hash256(hash);
 }
 
 function rightHash(hash) {
   var buf = new Buffer(33);
   hash.copy(buf, 0);
   buf[32] = 1;
-  return utils.hash256(buf);
+  return crypto.hash256(buf);
 }
 
 function descend(w, i, h, hash) {
