@@ -5,10 +5,108 @@ var constants = bcoin.constants;
 var ZERO_SIG = new Buffer(73);
 ZERO_SIG.fill(0);
 
+// Commands used in lightning message headers which detail the type of message.
+var msgType = {
+  // Commands for opening a channel funded by one party (single funder).
+  SingleFundingRequest: 100,
+  SingleFundingResponse: 110,
+  SingleFundingComplete: 120,
+  SingleFundingSignComplete: 130,
+  SingleFundingOpenProof: 140,
+
+  // Commands for the workflow of cooperatively closing an active channel.
+  CloseRequest: 300,
+  CloseComplete: 310,
+
+  // Commands for negotiating HTLCs.
+  HTLCAddRequest: 1000,
+  HTLCAddAccept: 1010,
+  HTLCAddReject: 1020,
+  HTLCSettleRequest: 1100,
+  HTLCTimeoutRequest: 1300,
+
+  // Commands for modifying commitment transactions.
+  CommitSignature: 2000,
+  CommitRevocation: 2010,
+
+  // Commands for routing
+  NeighborHello: 3000,
+  NeighborUpd: 3010,
+  NeighborAck: 3020,
+  NeighborRst: 3030,
+  RoutingTableRequest: 3040,
+  RoutingTableTransfer: 3050,
+
+  // Commands for reporting protocol errors.
+  ErrorGeneric: 4000
+};
+
+function fromRaw(cmd, data) {
+  switch (cmd) {
+    case msgType.SingleFundingRequest:
+      return SingleFundingRequest.fromRaw(data);
+    case msgType.SingleFundingResponse:
+      return SingleFundingResponse.fromRaw(data);
+    case msgType.SingleFundingComplete:
+      return SingleFundingComplete.fromRaw(data);
+    case msgType.SingleFundingSignComplete:
+      return SingleFundingSignComplete.fromRaw(data);
+    case msgType.SingleFundingOpenProof:
+      return SingleFundingOpenProof.fromRaw(data);
+
+    // Commands for the workflow of cooperatively closing an active channel.
+    case msgType.CloseRequest:
+      return CloseRequest.fromRaw(data);
+    case msgType.CloseComplete:
+      return CloseComplete.fromRaw(data);
+
+    // Commands for negotiating HTLCs.
+    case msgType.HTLCAddRequest:
+      return HTLCAddRequest.fromRaw(data);
+    case msgType.HTLCAddAccept:
+      return HTLCAddAccept.fromRaw(data);
+    case msgType.HTLCAddReject:
+      return HTLCAddReject.fromRaw(data);
+    case msgType.HTLCSettleRequest:
+      return HTLCSettleRequest.fromRaw(data);
+    case msgType.HTLCTimeoutRequest:
+      return HTLCTimeoutRequest.fromRaw(data);
+
+    // Commands for modifying commitment transactions.
+    case msgType.CommitSignature:
+      return CommitSignature.fromRaw(data);
+    case msgType.CommitRevocation:
+      return CommitRevocation.fromRaw(data);
+
+    // Commands for routing
+    case msgType.NeighborHello:
+      return NeighborHello.fromRaw(data);
+    case msgType.NeighborUpd:
+      return NeighborUpd.fromRaw(data);
+    case msgType.NeighborAck:
+      return NeighborAck.fromRaw(data);
+    case msgType.NeighborRst:
+      return NeighborRst.fromRaw(data);
+    case msgType.RoutingTableRequest:
+      return RoutingTableRequest.fromRaw(data);
+    case msgType.RoutingTableTransfer:
+      return RoutingTableTransfer.fromRaw(data);
+
+    // Commands for reporting protocol errors.
+    case msgType.ErrorGeneric:
+      return ErrorGeneric.fromRaw(data);
+    default:
+      throw new Error('Unknown cmd.');
+  }
+}
+
+// Message is an interface that defines a
 function CloseComplete() {
   this.channelPoint = new bcoin.outpoint();
   this.responderCloseSig = ZERO_SIG;
 }
+
+CloseComplete.prototype.cmd = msgType.CloseComplete;
 
 CloseComplete.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
@@ -34,11 +132,13 @@ function CloseRequest() {
   this.fee = 0;
 }
 
+CloseRequest.prototype.cmd = msgType.CloseRequest;
+
 CloseRequest.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
   this.channelPoint.fromRaw(p);
   this.requesterCloseSig = p.readBytes(73);
-  this.fee = p.read64N();
+  this.fee = p.read64NBE();
   return this;
 };
 
@@ -50,7 +150,7 @@ CloseRequest.prototype.toRaw = function toRaw() {
   var p = new bcoin.writer();
   this.channelPoint.toRaw(p);
   p.writeBytes(this.requesterCloseSig);
-  p.write64(this.fee);
+  p.write64BE(this.fee);
   return p.render();
 };
 
@@ -60,6 +160,8 @@ function CommitRevocation() {
   this.nextRevKey = constants.ZERO_KEY;
   this.nextRevHash = constants.ZERO_HASH;
 }
+
+CommitRevocation.prototype.cmd = msgType.CommitRevocation;
 
 CommitRevocation.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
@@ -90,11 +192,13 @@ function CommitSignature() {
   this.commitSig = ZERO_SIG;
 }
 
+CommitSignature.prototype.cmd = msgType.CommitSignature;
+
 CommitSignature.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
   this.channelPoint.fromRaw(p);
-  this.logIndex = p.readU64N();
-  this.fee = p.read64N();
+  this.logIndex = p.readU64NBE();
+  this.fee = p.read64NBE();
   this.commitSig = p.readBytes(73);
   return this;
 };
@@ -106,8 +210,8 @@ CommitSignature.fromRaw = function fromRaw(data) {
 CommitSignature.prototype.toRaw = function toRaw() {
   var p = new bcoin.writer();
   this.channelPoint.toRaw(p);
-  p.writeU64(this.logIndex);
-  p.write64(this.fee);
+  p.writeU64BE(this.logIndex);
+  p.write64BE(this.fee);
   p.writeBytes(this.commitSig);
   return p.render();
 };
@@ -118,10 +222,12 @@ function ErrorGeneric() {
   this.problem = '';
 }
 
+ErrorGeneric.prototype.cmd = msgType.ErrorGeneric;
+
 ErrorGeneric.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
   this.channelPoint.fromRaw(p);
-  this.errorID = p.readU16();
+  this.errorID = p.readU16BE();
   this.problem = p.readVarString('utf8');
   return this;
 };
@@ -133,7 +239,7 @@ ErrorGeneric.fromRaw = function fromRaw(data) {
 ErrorGeneric.prototype.toRaw = function toRaw() {
   var p = new bcoin.writer();
   this.channelPoint.toRaw(p);
-  p.writeU16(this.errorID);
+  p.writeU16BE(this.errorID);
   p.writeString(this.problem, 'utf8');
   return p.render();
 };
@@ -143,10 +249,12 @@ function HTLCAddReject() {
   this.htlcKey = 0;
 }
 
+HTLCAddReject.prototype.cmd = msgType.HTLCAddReject;
+
 HTLCAddReject.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
   this.channelPoint.fromRaw(p);
-  this.htlcKey = p.readU64N();
+  this.htlcKey = p.readU64NBE();
   return this;
 };
 
@@ -157,7 +265,7 @@ HTLCAddReject.fromRaw = function fromRaw(data) {
 HTLCAddReject.prototype.toRaw = function toRaw() {
   var p = new bcoin.writer();
   this.channelPoint.toRaw(p);
-  p.writeU64(this.htlcKey);
+  p.writeU64BE(this.htlcKey);
   return p.render();
 };
 
@@ -171,16 +279,18 @@ function HTLCAddRequest() {
   this.onionBlob = new Buffer(0);
 }
 
+HTLCAddRequest.prototype.cmd = msgType.HTLCAddRequest;
+
 HTLCAddRequest.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
   var i, count;
 
   this.channelPoint.fromRaw(p);
-  this.expiry = p.readU32();
-  this.value = p.readU32();
+  this.expiry = p.readU32BE();
+  this.value = p.readU32BE();
   this.contractType = p.readU8();
 
-  count = p.readU16();
+  count = p.readU16BE();
 
   for (i = 0; i < count; i++)
     this.redemptionHashes.push(p.readBytes(32));
@@ -200,10 +310,10 @@ HTLCAddRequest.prototype.toRaw = function toRaw() {
 
   this.channelPoint.toRaw(p);
 
-  p.writeU32(this.expiry);
-  p.writeU32(this.value);
+  p.writeU32BE(this.expiry);
+  p.writeU32BE(this.value);
   p.writeU8(this.contractType);
-  p.writeU16(this.redemptionHashes.length);
+  p.writeU16BE(this.redemptionHashes.length);
 
   for (i = 0; i < this.redemptionHashes.length; i++)
     p.writeBytes(this.redemptionHashes[i]);
@@ -219,14 +329,16 @@ function HTLCSettleRequest() {
   this.redemptionProofs = [];
 }
 
+HTLCSettleRequest.prototype.cmd = msgType.HTLCSettleRequest;
+
 HTLCSettleRequest.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
   var i, count;
 
   this.channelPoint.fromRaw(p);
-  this.htlcKey = p.readU64N();
+  this.htlcKey = p.readU64NBE();
 
-  count = p.readU16();
+  count = p.readU16BE();
 
   for (i = 0; i < count; i++)
     this.redemptionProofs.push(p.readBytes(32));
@@ -244,8 +356,8 @@ HTLCSettleRequest.prototype.toRaw = function toRaw() {
 
   this.channelPoint.toRaw(p);
 
-  p.writeU64(this.htlcKey);
-  p.writeU16(this.redemptionProofs.length);
+  p.writeU64BE(this.htlcKey);
+  p.writeU16BE(this.redemptionProofs.length);
 
   for (i = 0; i < this.redemptionProofs.length; i++)
     p.writeBytes(this.redemptionProofs[i]);
@@ -258,10 +370,12 @@ function HTLCTimeoutRequest() {
   this.htlcKey = 0;
 }
 
+HTLCTimeoutRequest.prototype.cmd = msgType.HTLCTimeoutRequest;
+
 HTLCTimeoutRequest.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
   this.channelPoint.fromRaw(p);
-  this.htlcKey = p.readU64N();
+  this.htlcKey = p.readU64NBE();
   return this;
 };
 
@@ -272,12 +386,14 @@ HTLCTimeoutRequest.fromRaw = function fromRaw(data) {
 HTLCTimeoutRequest.prototype.toRaw = function toRaw() {
   var p = new bcoin.writer();
   this.channelPoint.toRaw(p);
-  p.writeU64(this.htlcKey);
+  p.writeU64BE(this.htlcKey);
   return p.render();
 };
 
 function NeighborAck() {
 }
+
+NeighborAck.prototype.cmd = msgType.NeighborAck;
 
 NeighborAck.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
@@ -318,6 +434,8 @@ NeighborHello.prototype.toRaw = function toRaw() {
 function NeighborRst() {
 }
 
+NeighborRst.prototype.cmd = msgType.NeighborRst;
+
 NeighborRst.prototype.fromRaw = function fromRaw(data) {
   return this;
 };
@@ -349,6 +467,8 @@ NeighborUpd.prototype.toRaw = function toRaw() {
 function RoutingTableRequest() {
 }
 
+RoutingTableRequest.prototype.cmd = msgType.RoutingTableRequest;
+
 RoutingTableRequest.prototype.fromRaw = function fromRaw(data) {
   return this;
 };
@@ -368,9 +488,11 @@ function SingleFundingComplete() {
   this.revocationKey = constants.ZERO_KEY;
 }
 
+SingleFundingComplete.prototype.cmd = msgType.SingleFundingComplete;
+
 SingleFundingComplete.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
-  this.channelID = p.readU64N();
+  this.channelID = p.readU64NBE();
   this.fundingOutpoint.fromRaw(p);
   this.commitSignature = p.readBytes(73);
   this.revocationKey = p.readBytes(33);
@@ -384,7 +506,7 @@ SingleFundingComplete.fromRaw = function fromRaw(data) {
 
 SingleFundingComplete.prototype.toRaw = function toRaw() {
   var p = new bcoin.writer();
-  p.writeU64(this.channelID);
+  p.writeU64BE(this.channelID);
   this.fundingOutpoint.toRaw(p);
   p.writeBytes(this.commitSignature);
   p.writeBytes(this.revocationKey);
@@ -396,9 +518,11 @@ function SingleFundingOpenProof() {
   this.spvProof = new Buffer(0);
 }
 
+SingleFundingOpenProof.prototype.cmd = msgType.SingleFundingOpenProof;
+
 SingleFundingOpenProof.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
-  this.channelID = p.readU64N();
+  this.channelID = p.readU64NBE();
   this.spvProof = p.readVarBytes();
   return this;
 };
@@ -409,7 +533,7 @@ SingleFundingOpenProof.fromRaw = function fromRaw(data) {
 
 SingleFundingOpenProof.prototype.toRaw = function toRaw() {
   var p = new bcoin.writer();
-  p.writeU64(this.channelID);
+  p.writeU64BE(this.channelID);
   p.writeVarBytes(this.spvProof);
   return p.render();
 };
@@ -426,14 +550,16 @@ function SingleFundingRequest() {
   this.deliveryScript = new bcoin.script();
 }
 
+SingleFundingRequest.prototype.cmd = msgType.SingleFundingRequest;
+
 SingleFundingRequest.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
-  this.channelID = p.readU64N();
+  this.channelID = p.readU64NBE();
   this.channelType = p.readU8();
-  this.coinType = p.readU64N();
-  this.feeRate = p.readU64N();
-  this.fundingValue = p.readU64N();
-  this.csvDelay = p.readU32();
+  this.coinType = p.readU64NBE();
+  this.feeRate = p.readU64NBE();
+  this.fundingValue = p.readU64NBE();
+  this.csvDelay = p.readU32BE();
   this.commitKey = p.readBytes(33);
   this.channelDerivationPoint = p.readBytes(33);
   this.deliveryScript.fromRaw(p.readVarBytes());
@@ -446,12 +572,12 @@ SingleFundingRequest.fromRaw = function fromRaw(data) {
 
 SingleFundingRequest.prototype.toRaw = function toRaw() {
   var p = new bcoin.writer();
-  p.writeU64(this.channelID);
+  p.writeU64BE(this.channelID);
   p.writeU8(this.channelType);
-  p.writeU64(this.coinType);
-  p.writeU64(this.feeRate);
-  p.writeU64(this.fundingValue);
-  p.writeU32(this.csvDelay);
+  p.writeU64BE(this.coinType);
+  p.writeU64BE(this.feeRate);
+  p.writeU64BE(this.fundingValue);
+  p.writeU32BE(this.csvDelay);
   p.writeBytes(this.commitKey);
   p.writeBytes(this.channelDerivationPoint);
   p.writeVarBytes(this.deliveryScript.toRaw());
@@ -467,13 +593,15 @@ function SingleFundingResponse() {
   this.deliveryScript = new bcoin.script();
 }
 
+SingleFundingResponse.prototype.cmd = msgType.SingleFundingResponse;
+
 SingleFundingResponse.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
-  this.channelID = p.readU64N();
+  this.channelID = p.readU64NBE();
   this.channelDerivationPoint = p.readBytes(33);
   this.commitKey = p.readBytes(33);
   this.revocationKey = p.readBytes(33);
-  this.csvDelay = p.readU32();
+  this.csvDelay = p.readU32BE();
   this.deliveryScript.fromRaw(p.readVarBytes());
   return this;
 };
@@ -484,11 +612,11 @@ SingleFundingResponse.fromRaw = function fromRaw(data) {
 
 SingleFundingResponse.prototype.toRaw = function toRaw() {
   var p = new bcoin.writer();
-  p.writeU64(this.channelID);
+  p.writeU64BE(this.channelID);
   p.writeBytes(this.channelDerivationPoint);
   p.writeBytes(this.commitKey);
   p.writeBytes(this.revocationKey);
-  p.writeU32(this.csvDelay);
+  p.writeU32BE(this.csvDelay);
   p.writeVarBytes(this.deliveryScript.toRaw());
   return p.render();
 };
@@ -498,9 +626,11 @@ function SingleFundingSignComplete() {
   this.commitSignature = ZERO_SIG;
 }
 
+SingleFundingSignComplete.prototype.cmd = msgType.SingleFundingSignComplete;
+
 SingleFundingSignComplete.prototype.fromRaw = function fromRaw(data) {
   var p = new bcoin.reader(data);
-  this.channelID = p.readU64N();
+  this.channelID = p.readU64NBE();
   this.commitSignature = p.readBytes(73);
   return this;
 };
@@ -511,7 +641,7 @@ SingleFundingSignComplete.fromRaw = function fromRaw(data) {
 
 SingleFundingSignComplete.prototype.toRaw = function toRaw() {
   var p = new bcoin.writer();
-  p.writeU64(this.channelID);
+  p.writeU64BE(this.channelID);
   p.writeBytes(this.commitSignature);
   return p.render();
 };
@@ -535,3 +665,5 @@ exports.SingleFundingOpenProof = SingleFundingOpenProof;
 exports.SingleFundingRequest = SingleFundingRequest;
 exports.SingleFundingResponse = SingleFundingResponse;
 exports.SingleFundingSignComplete = SingleFundingSignComplete;
+exports.msgType = msgType;
+exports.fromRaw = fromRaw;
