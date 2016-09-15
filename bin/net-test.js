@@ -15,7 +15,7 @@ hash = hash.slice(1, 21);
 
 var peer = new Peer(myID, addr, hash, bcoin.network.get('simnet'));
 
-peer.connect(myID, addr, hash);
+peer.connect();
 
 peer.on('packet', function(msg) {
   console.log('Received packet:');

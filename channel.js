@@ -1,21 +1,19 @@
 /*!
  * channel.js
- * https://github.com/bcoin-org/bcoin
+ * https://github.com/bcoin-org/blight
+ *
+ * References:
+ *   https://github.com/lightningnetwork/lnd/blob/master/lnwallet/channel.go
+ *   https://github.com/lightningnetwork/lnd/blob/master/lnwallet/script_utils.go
+ *   https://github.com/lightningnetwork/lnd/blob/master/elkrem/elkrem.go
+ *   https://github.com/lightningnetwork/lnd/blob/master/channeldb/channel.go
+ *   https://github.com/lightningnetwork/lnd/blob/master/lnwire/htlc_addrequest.go
+ *   https://github.com/lightningnetwork/lnd/blob/master/lnwallet/script_utils.go
+ *   https://github.com/lightningnetwork/lnd/blob/master/lnwallet/script_utils_test.go
+ *   https://github.com/lightningnetwork/lnd/blob/master/lnwallet/channel_test.go
  */
 
 'use strict';
-
-// https://github.com/lightningnetwork/lnd/blob/master/lnwallet/script_utils.go
-// https://github.com/ElementsProject/lightning/blob/master/bitcoin/script.c
-// https://github.com/lightningnetwork/lnd/blob/master/lnwallet/channel.go
-// https://github.com/lightningnetwork/lnd/blob/master/elkrem/elkrem.go
-// https://github.com/lightningnetwork/lnd/blob/master/lnwallet/script_utils_test.go
-// https://github.com/lightningnetwork/lnd/blob/master/lnwallet/script_utils.go
-// https://github.com/lightningnetwork/lnd/blob/master/lnwallet/script_utils_test.go
-// https://github.com/lightningnetwork/lnd/blob/master/channeldb/channel.go
-// https://github.com/lightningnetwork/lnd/blob/master/lnwallet/channel.go
-// https://github.com/lightningnetwork/lnd/blob/master/lnwallet/channel_test.go
-// https://github.com/lightningnetwork/lnd/blob/master/lnwire/htlc_addrequest.go
 
 var bcoin = require('bcoin');
 var constants = bcoin.constants;

@@ -182,6 +182,8 @@ Connection.prototype.writeRaw = function writeRaw(data) {
 };
 
 Connection.prototype.readRaw = function readRaw(size, callback) {
+  assert(!this.hasSize);
+  assert(this.waiting === 2);
   this.waiting = size;
   this.readCallback = callback;
 };
