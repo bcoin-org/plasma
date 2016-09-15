@@ -1,0 +1,44 @@
+{
+  "name": "blight",
+  "version": "0.0.1",
+  "description": "Lightning network bike-shed",
+  "main": "./lib/blight.js",
+  "bin": {},
+  "preferGlobal": false,
+  "scripts": {
+    "test": "mocha --reporter spec test/*-test.js",
+    "browserify": "browserify --im -o blight.js lib/blight.js",
+    "uglify": "uglifyjs -m -o blight.min.js blight.js",
+    "clean": "rm blight.js blight.min.js"
+  },
+  "repository": "git://github.com/bcoin-org/blight.git",
+  "keywords": [
+    "bcoin",
+    "bitcoin",
+    "blockchain",
+    "lightning",
+    "wallet"
+  ],
+  "author": "Christopher Jeffrey <chjjeffrey@gmail.com> (https://github.com/chjj)",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/bcoin-org/blight/issues"
+  },
+  "homepage": "https://github.com/bcoin-org/blight",
+  "engines": {
+    "node": ">= 0.10.0"
+  },
+  "dependencies": {
+    "bcoin": "git://github.com/bcoin-org/bcoin.git#master"
+  },
+  "optionalDependencies": {},
+  "devDependencies": {
+    "browserify": "13.1.0",
+    "hash.js": "1.0.3",
+    "jsdoc": "3.4.0",
+    "level-js": "2.2.4",
+    "mocha": "3.0.2",
+    "uglify-js": "2.7.3"
+  },
+  "browser": {}
+}
