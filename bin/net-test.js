@@ -4,8 +4,8 @@ var bcoin = require('bcoin');
 var utils = bcoin.utils;
 var crypto = bcoin.crypto;
 var assert = utils.assert;
-var wire = require('./wire');
-var Peer = require('./peer');
+var wire = require('../lib/wire');
+var Peer = require('../lib/peer');
 
 var myID = bcoin.ec.generatePrivateKey();
 var addr = '52.39.113.206';
