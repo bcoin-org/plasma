@@ -1,13 +1,9 @@
 'use strict';
 
-var EventEmitter = require('events').EventEmitter;
 var bcoin = require('bcoin');
 var utils = bcoin.utils;
-var crypto = bcoin.crypto;
 var assert = utils.assert;
-var constants = bcoin.constants;
 var chachapoly = require('bcoin/lib/crypto/chachapoly');
-var wire = require('./wire');
 
 /**
  * AEAD (used for bip151)
@@ -166,20 +162,7 @@ NonstandardAEAD.prototype.finish = function finish() {
  */
 
 NonstandardAEAD.prototype.pad16 = function pad16(size) {
-  var pad;
-
   // NOP
-  return;
-
-  size %= 16;
-
-  if (size === 0)
-    return;
-
-  pad = new Buffer(16 - size);
-  pad.fill(0);
-
-  this.poly1305.update(pad);
 };
 
 /**

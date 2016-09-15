@@ -1,13 +1,8 @@
 'use strict';
 
-var EventEmitter = require('events').EventEmitter;
 var bcoin = require('bcoin');
 var utils = bcoin.utils;
-var crypto = bcoin.crypto;
 var assert = utils.assert;
-var constants = bcoin.constants;
-var chachapoly = require('bcoin/lib/crypto/chachapoly');
-var wire = require('./wire');
 
 /**
  * Protocol packet framer

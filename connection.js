@@ -5,9 +5,6 @@ var bcoin = require('bcoin');
 var utils = bcoin.utils;
 var crypto = bcoin.crypto;
 var assert = utils.assert;
-var constants = bcoin.constants;
-var chachapoly = require('bcoin/lib/crypto/chachapoly');
-var wire = require('./wire');
 var AEAD = require('./aead');
 
 /**
@@ -23,8 +20,6 @@ function Connection() {
 
   this.remotePub = null;
   this.remoteID = null;
-  this.myNonce = 0;
-  this.remoteNonce = 0;
   this.authed = false;
   this.local = new AEAD.Stream();
   this.remote = new AEAD.Stream();
@@ -35,7 +30,7 @@ function Connection() {
   this.socket = null;
 
   this.readQueue = [];
-  this.rawCallback = null;
+  this.readCallback = null;
   this.pending = [];
   this.total = 0;
   this.waiting = 2;
@@ -44,40 +39,50 @@ function Connection() {
 
 utils.inherits(Connection, EventEmitter);
 
+Connection.prototype.error = function error(err) {
+  this.emit('error', new Error(err));
+};
+
 Connection.prototype.connect = function connect(myID, addr, remoteID) {
   var self = this;
   var net = require('net');
+
   this.socket = net.connect(10011, addr);
+
   this.socket.on('error', function(err) {
     self.emit('error', err);
   });
+
   this.socket.on('connect', function() {
     self._onConnect(myID, addr, remoteID);
   });
+
   this.socket.on('data', function(data) {
     self.feed(data);
   });
 };
 
 Connection.prototype._onConnect = function _onConnect(myID, addr, remoteID) {
-  assert(remoteID.length === 20 || remoteID.length === 33);
+  var ourPriv, ourPub;
 
-  if (remoteID.length === 20)
-    this.remoteID = remoteID;
-  else
-    this.remoteID = crypto.hash160(remoteID);
+  switch (remoteID.length) {
+    case 20:
+      this.remoteID = remoteID;
+      break;
+    case 33:
+      this.remoteID = crypto.hash160(remoteID);
+      break;
+    default:
+      throw new Error('Bad LNID size.');
+  }
 
-  var ourPriv = bcoin.ec.generatePrivateKey();
-  var ourPub = bcoin.ec.publicKeyCreate(ourPriv, true);
+  ourPriv = bcoin.ec.generatePrivateKey();
+  ourPub = bcoin.ec.publicKeyCreate(ourPriv, true);
 
   this.writeClear(ourPub);
 
-  console.log('writing pub');
-
   this.readClear(33, function(theirPub) {
     var sessionKey = crypto.sha256(bcoin.ec.ecdh(theirPub, ourPriv));
-
-    console.log('received pub: %s (%d)', theirPub.toString('hex'), theirPub.length);
 
     this.local.seqHi = 0;
     this.local.seqLo = 0;
@@ -102,24 +107,26 @@ Connection.prototype._onConnect = function _onConnect(myID, addr, remoteID) {
 Connection.prototype.authPubkey = function authPubkey(myID, theirPub, localPub) {
   var theirPKH = crypto.hash160(theirPub);
   var idDH = crypto.sha256(bcoin.ec.ecdh(theirPub, myID));
-  var myProof = crypto.hash160(Buffer.concat([theirPub, idDH]));
+  var myProof = crypto.hash160(concat(theirPub, idDH));
+  var myPub = bcoin.ec.publicKeyCreate(myID, true);
+  var authMsg;
 
   assert(!this.authed);
 
-  var authMsg = new Buffer(73);
-  bcoin.ec.publicKeyCreate(myID, true).copy(authMsg, 0);
+  authMsg = new Buffer(73);
+  myPub.copy(authMsg, 0);
   theirPKH.copy(authMsg, 33);
   myProof.copy(authMsg, 53);
 
-  this.socket.write(authMsg);
+  this.writeRaw(authMsg);
 
   this.readRaw(20, function(response) {
-    var theirProof = crypto.hash160(Buffer.concat([localPub, idDH]));
+    var theirProof = crypto.hash160(concat(localPub, idDH));
 
     assert(response.length === 20);
 
     if (!crypto.ccmp(response, theirProof))
-      throw new Error('Invalid proof.');
+      return this.error('Invalid proof.');
 
     this.remotePub = theirPub;
     this.remoteID = crypto.hash160(theirPub);
@@ -129,29 +136,28 @@ Connection.prototype.authPubkey = function authPubkey(myID, theirPub, localPub) 
 };
 
 Connection.prototype.authPubkeyhash = function authPubkeyhash(myID, theirPKH, localPub) {
+  var greeting = new Buffer(53);
+
   assert(!this.authed);
   assert(theirPKH.length === 20);
 
-  var greeting = new Buffer(53);
   bcoin.ec.publicKeyCreate(myID, true).copy(greeting, 0);
   theirPKH.copy(greeting, 33);
 
-  this.socket.write(greeting);
-
-  console.log('writing greeting');
+  this.writeRaw(greeting);
 
   this.readRaw(53, function(response) {
     var theirPub = response.slice(0, 33);
     var idDH = crypto.sha256(bcoin.ec.ecdh(theirPub, myID));
-    var theirProof = crypto.hash160(Buffer.concat([localPub, idDH]));
-
-    console.log('received res');
+    var theirProof = crypto.hash160(concat(localPub, idDH));
+    var myProof;
 
     if (!crypto.ccmp(response.slice(33), theirProof))
-      throw new Error('Invalid proof.');
+      return this.error('Invalid proof.');
 
-    var myProof = crypto.hash160(Buffer.concat([this.remotePub, idDH]));
-    this.socket.write(myProof);
+    myProof = crypto.hash160(concat(this.remotePub, idDH));
+
+    this.writeRaw(myProof);
 
     this.remotePub = theirPub;
     this.remoteID = crypto.hash160(theirPub);
@@ -167,20 +173,18 @@ Connection.prototype.writeClear = function writeClear(payload) {
   this.socket.write(packet);
 };
 
-Connection.prototype.readRaw = function readClear(size, callback) {
-  this.waiting = size;
-  this.rawCallback = callback;
-};
-
 Connection.prototype.readClear = function readClear(size, callback) {
-  this.readQueue.push(callback);
+  this.readQueue.push(new QueuedRead(size, callback));
 };
 
-/**
- * Parse ciphertext data and split into chunks.
- * Potentially emits a `packet` event.
- * @param {Buffer} data
- */
+Connection.prototype.writeRaw = function writeRaw(data) {
+  this.socket.write(data);
+};
+
+Connection.prototype.readRaw = function readRaw(size, callback) {
+  this.waiting = size;
+  this.readCallback = callback;
+};
 
 Connection.prototype.feed = function feed(data) {
   var chunk;
@@ -193,13 +197,6 @@ Connection.prototype.feed = function feed(data) {
     this.parse(chunk);
   }
 };
-
-/**
- * Read and consume a number of bytes
- * from the buffered stream.
- * @param {Number} size
- * @returns {Buffer}
- */
 
 Connection.prototype.read = function read(size) {
   var pending, chunk, off, len;
@@ -245,29 +242,23 @@ Connection.prototype.read = function read(size) {
   return chunk;
 };
 
-/**
- * Parse a ciphertext payload chunk.
- * Potentially emits a `packet` event.
- * @param {Buffer} data
- */
-
 Connection.prototype.parse = function parse(data) {
-  var size, payload, tag, p, cmd, body, callback;
+  var size, payload, tag, p, cmd, body, item;
 
   if (!this.authed) {
-    if (this.rawCallback) {
+    if (this.readCallback) {
       this.hasSize = false;
       this.waiting = 2;
-      callback = this.rawCallback;
-      this.rawCallback = null;
-      callback.call(this, data);
+      item = this.readCallback;
+      this.readCallback = null;
+      item.call(this, data);
       return;
     }
 
     if (!this.hasSize) {
       size = data.readUInt16BE(0, true);
 
-      if (size < 2 || size > constants.MAX_MESSAGE * 3) {
+      if (size < 12) {
         this.waiting = 2;
         this.emit('error', new Error('Bad packet size.'));
         return;
@@ -283,8 +274,10 @@ Connection.prototype.parse = function parse(data) {
     this.waiting = 2;
 
     if (this.readQueue.length > 0) {
-      callback = this.readQueue.shift();
-      callback.call(this, data);
+      item = this.readQueue.shift();
+      if (item.size !== data.length)
+        return this.error('Bad packet size.');
+      item.callback.call(this, data);
       return;
     }
 
@@ -296,15 +289,9 @@ Connection.prototype.parse = function parse(data) {
   if (!this.hasSize) {
     size = this.local.decryptSize(data);
 
-    // Allow 3 batched packets of max message size (12mb).
-    // Not technically standard, but this protects us
-    // from buffering tons of data due to either an
-    // potential dos'er or a cipher state mismatch.
-    // Note that 6 is the minimum size:
-    // cmd=varint(1) string(1) length(4) data(0)
-    if (size < 2 || size > constants.MAX_MESSAGE * 3) {
+    if (size < 2) {
       this.waiting = 2;
-      this.emit('error', new Error('Bad packet size.'));
+      this.error('Bad packet size.');
       return;
     }
 
@@ -328,18 +315,12 @@ Connection.prototype.parse = function parse(data) {
 
   if (!this.local.verify(tag)) {
     this.local.sequence();
-    this.emit('error', new Error('Bad tag.'));
+    this.error('Bad tag.');
     return;
   }
 
   this.local.decrypt(payload);
   this.local.sequence();
-
-  if (this.readQueue.length > 0) {
-    callback = this.readQueue.shift();
-    callback.call(this, data);
-    return;
-  }
 
   this.emit('data', payload);
 };
@@ -354,5 +335,21 @@ Connection.prototype.write = function write(payload) {
 
   this.socket.write(packet);
 };
+
+/*
+ * Helpers
+ */
+
+function QueuedRead(size, callback) {
+  this.size = size;
+  this.callback = callback;
+}
+
+function concat(b1, b2) {
+  var buf = new Buffer(b1.length + b2.length);
+  b1.copy(buf, 0);
+  b2.copy(buf, b1.length);
+  return buf;
+}
 
 module.exports = Connection;
