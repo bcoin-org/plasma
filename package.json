@@ -1,5 +1,5 @@
 {
-  "name": "plasma",
+  "name": "bcoin-plasma",
   "version": "0.0.1",
   "description": "Lightning network bike-shed",
   "main": "./lib/plasma.js",
