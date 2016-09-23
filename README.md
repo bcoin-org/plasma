@@ -1,4 +1,4 @@
-# blight
+# plasma
 
 A lightning network implementation on top of [bcoin][bcoin]. Designed to be
 lnd-compatible.

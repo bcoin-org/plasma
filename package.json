@@ -1,17 +1,17 @@
 {
-  "name": "blight",
+  "name": "plasma",
   "version": "0.0.1",
   "description": "Lightning network bike-shed",
-  "main": "./lib/blight.js",
+  "main": "./lib/plasma.js",
   "bin": {},
   "preferGlobal": false,
   "scripts": {
     "test": "mocha --reporter spec test/*-test.js",
-    "browserify": "browserify --im -o blight.js lib/blight.js",
-    "uglify": "uglifyjs -m -o blight.min.js blight.js",
-    "clean": "rm blight.js blight.min.js"
+    "browserify": "browserify --im -o plasma.js lib/plasma.js",
+    "uglify": "uglifyjs -m -o plasma.min.js plasma.js",
+    "clean": "rm plasma.js plasma.min.js"
   },
-  "repository": "git://github.com/bcoin-org/blight.git",
+  "repository": "git://github.com/bcoin-org/plasma.git",
   "keywords": [
     "bcoin",
     "bitcoin",
@@ -22,9 +22,9 @@
   "author": "Christopher Jeffrey <chjjeffrey@gmail.com> (https://github.com/chjj)",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/bcoin-org/blight/issues"
+    "url": "https://github.com/bcoin-org/plasma/issues"
   },
-  "homepage": "https://github.com/bcoin-org/blight",
+  "homepage": "https://github.com/bcoin-org/plasma",
   "engines": {
     "node": ">= 0.10.0"
   },
