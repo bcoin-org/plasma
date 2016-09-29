@@ -9,16 +9,16 @@ var BufferWriter = require('bcoin/lib/utils/writer');
 var BufferReader = require('bcoin/lib/utils/reader');
 var opcodes = constants.opcodes;
 var hashType = constants.hashType;
-var elkrem = require('../elkrem');
+var elkrem = require('../lib/elkrem');
 var ElkremSender = elkrem.ElkremSender;
 var ElkremReceiver = elkrem.ElkremReceiver;
-var util = require('../scriptutil');
-var ChannelState = require('../channelstate');
-var Channel = require('../channel');
-var wire = require('../wire');
+var util = require('../lib/scriptutil');
+var ChannelState = require('../lib/channelstate');
+var Channel = require('../lib/channel');
+var wire = require('../lib/wire');
 var CommitRevocation = wire.CommitRevocation;
 var HTLCAddRequest = wire.HTLCAddRequest;
-var List = require('../list');
+var List = require('../lib/list');
 
 bcoin.cache();
 
