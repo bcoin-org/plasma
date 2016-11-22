@@ -2,9 +2,9 @@
 
 var bcoin = require('bcoin');
 var constants = bcoin.constants;
-var utils = require('bcoin/lib/utils/utils');
+var utils = require('bcoin/lib/utils/util');
 var crypto = bcoin.crypto;
-var assert = utils.assert;
+var assert = require('assert');
 var BufferWriter = require('bcoin/lib/utils/writer');
 var BufferReader = require('bcoin/lib/utils/reader');
 var opcodes = constants.opcodes;
