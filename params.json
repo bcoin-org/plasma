@@ -1,0 +1,6 @@
+{
+  "name": "Plasma",
+  "tagline": "Lightning network for BCoin",
+  "body": "# plasma\r\n\r\nA lightning network implementation on top of [bcoin][bcoin]. Designed to be\r\nlnd-compatible.\r\n\r\nUnstable.\r\n\r\n[bcoin]: https://github.com/bcoin-org/bcoin\r\n",
+  "note": "Don't delete this file! It's used internally to help with page regeneration."
+}
